@@ -1,6 +1,9 @@
 <script lang="ts">
   import { GlassScene, GlassPanel } from "@glaze/svelte";
 
+  // Base-aware asset URL so the grass loads under GitHub Pages' /glaze/ subpath.
+  const assetBase = import.meta.env.BASE_URL;
+
   let temp = $state(64);
   const hours = [
     ["Now", "64°"],
@@ -34,7 +37,7 @@
 </script>
 
 <GlassScene class="stage">
-  <div class="bg"></div>
+  <div class="bg" style="background-image: url('{assetBase}grass.jpg');"></div>
   <h1 class="headline">read me through the glass</h1>
   <p class="hint">
     Everything here is normal DOM. Drag the card over the headline — and tune the
@@ -102,7 +105,9 @@
   .bg {
     position: absolute;
     inset: 0;
-    background: url("/grass.jpg") center / cover no-repeat;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
   }
 
   .headline {
