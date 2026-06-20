@@ -11,8 +11,10 @@
   "scripts": {
     "build": "npm run build -w @kussetsu/core && npm run build -w @kussetsu/svelte && npm run build -w @kussetsu/react",
     "typecheck": "npm run typecheck -w @kussetsu/core && npm run typecheck -w @kussetsu/svelte && npm run typecheck -w @kussetsu/react",
-    "dev:demo": "npm run dev -w kussetsu-svelte-demo",
-    "build:demo": "npm run build -w kussetsu-svelte-demo",
+    "dev:demo": "npm run dev -w kussetsu-react-demo",
+    "build:demo": "npm run build -w kussetsu-react-demo",
+    "dev:demo:svelte": "npm run dev -w kussetsu-svelte-demo",
+    "build:demo:svelte": "npm run build -w kussetsu-svelte-demo",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "changeset publish"

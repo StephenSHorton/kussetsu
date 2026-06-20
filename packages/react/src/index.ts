@@ -5,6 +5,10 @@ export type { GlassSceneProps } from "./GlassScene";
 export { GlassPanel } from "./GlassPanel";
 export type { GlassPanelProps } from "./GlassPanel";
 
+// Shared glass material: override material props on a whole subtree of panels.
+export { GlassThemeContext } from "./context";
+export type { GlassThemeValue } from "./context";
+
 // Low-level primitive: bind a raw WGSL shader to an element via a ref.
 export { useShader } from "./useShader";
 export type { UseShaderOptions } from "./useShader";
