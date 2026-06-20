@@ -14,6 +14,21 @@ import type {
 const GLOBALS_FLOATS = 8; // resolution.xy, mouse.xy, time, scroll, dpr, pad
 const GLOBALS_BYTES = GLOBALS_FLOATS * 4;
 
+/**
+ * Module-level cache of compiled pipeline + bind-group layout, keyed by the
+ * assembled WGSL. Every glass panel uses the same shader, so the (slow, async)
+ * pipeline compile happens once per shader instead of once per surface — so a
+ * panel mounted later (e.g. a dialog opening) paints its glass immediately
+ * rather than popping in when the compile finally finishes. The layout/pipeline
+ * depend only on the shader + canvas format (one shared device), so they're
+ * safe to share; per-surface buffers/textures/bind groups are still local.
+ */
+interface CachedPipeline {
+  readonly pipeline: GPURenderPipeline;
+  readonly bgl: GPUBindGroupLayout;
+}
+const pipelineCache = new Map<string, CachedPipeline>();
+
 const prefersReducedMotion = (): boolean =>
   typeof matchMedia === "function" &&
   matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -361,60 +376,73 @@ export function createShaderSurface(
     ctx = context;
     ctx.configure({ device, format: gpu.format, alphaMode: "premultiplied" });
 
-    device.pushErrorScope("validation");
-    const shaderModule = device.createShaderModule({ code: assembled.module });
-    const info = await shaderModule.getCompilationInfo();
-    for (const m of info.messages) {
-      if (m.type === "error") console.error(`[kussetsu] WGSL ${m.type}: ${m.message} (line ${m.lineNum})`);
-    }
-
-    const bglEntries: GPUBindGroupLayoutEntry[] = [
-      { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-    ];
     const hasUser = assembled.decls.length > 0;
-    if (hasUser) {
-      bglEntries.push({
-        binding: 1,
-        visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-        buffer: { type: "uniform" },
-      });
-    }
-    for (const t of assembled.textures) {
-      bglEntries.push({
-        binding: t.binding,
-        visibility: GPUShaderStage.FRAGMENT,
-        texture: { sampleType: "float", viewDimension: "2d" },
-      });
-      bglEntries.push({
-        binding: t.samplerBinding,
-        visibility: GPUShaderStage.FRAGMENT,
-        sampler: { type: "filtering" },
-      });
-    }
-    const bgl = device.createBindGroupLayout({ entries: bglEntries });
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
 
-    try {
-      pipeline = await device.createRenderPipelineAsync({
-        layout: pipelineLayout,
-        vertex: { module: shaderModule, entryPoint: "kussetsu_vs" },
-        fragment: {
-          module: shaderModule,
-          entryPoint: "kussetsu_fs",
-          targets: [{ format: gpu.format }],
-        },
-        primitive: { topology: "triangle-list" },
-      });
-    } catch (err) {
-      console.error("[kussetsu] pipeline creation failed:", err);
+    // Compile the pipeline once per shader (shared across surfaces); reuse if we
+    // already have it, so later-mounted panels paint instantly (no compile gap).
+    let cacheEntry = pipelineCache.get(assembled.module);
+    if (!cacheEntry) {
+      device.pushErrorScope("validation");
+      const shaderModule = device.createShaderModule({ code: assembled.module });
+      const info = await shaderModule.getCompilationInfo();
+      for (const m of info.messages) {
+        if (m.type === "error") console.error(`[kussetsu] WGSL ${m.type}: ${m.message} (line ${m.lineNum})`);
+      }
+
+      const bglEntries: GPUBindGroupLayoutEntry[] = [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+      ];
+      if (hasUser) {
+        bglEntries.push({
+          binding: 1,
+          visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+          buffer: { type: "uniform" },
+        });
+      }
+      for (const t of assembled.textures) {
+        bglEntries.push({
+          binding: t.binding,
+          visibility: GPUShaderStage.FRAGMENT,
+          texture: { sampleType: "float", viewDimension: "2d" },
+        });
+        bglEntries.push({
+          binding: t.samplerBinding,
+          visibility: GPUShaderStage.FRAGMENT,
+          sampler: { type: "filtering" },
+        });
+      }
+      const newBgl = device.createBindGroupLayout({ entries: bglEntries });
+      const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [newBgl] });
+
+      let newPipeline: GPURenderPipeline | null = null;
+      try {
+        newPipeline = await device.createRenderPipelineAsync({
+          layout: pipelineLayout,
+          vertex: { module: shaderModule, entryPoint: "kussetsu_vs" },
+          fragment: {
+            module: shaderModule,
+            entryPoint: "kussetsu_fs",
+            targets: [{ format: gpu.format }],
+          },
+          primitive: { topology: "triangle-list" },
+        });
+      } catch (err) {
+        console.error("[kussetsu] pipeline creation failed:", err);
+      }
+      const scopeError = await device.popErrorScope();
+      if (destroyed) return;
+      if (!newPipeline || scopeError) {
+        if (scopeError) console.error(`[kussetsu] ${scopeError.message}`);
+        fail("shader-error");
+        return;
+      }
+      cacheEntry = { pipeline: newPipeline, bgl: newBgl };
+      pipelineCache.set(assembled.module, cacheEntry);
     }
-    const scopeError = await device.popErrorScope();
     if (destroyed) return;
-    if (!pipeline || scopeError) {
-      if (scopeError) console.error(`[kussetsu] ${scopeError.message}`);
-      fail("shader-error");
-      return;
-    }
+
+    pipeline = cacheEntry.pipeline;
+    const bgl = cacheEntry.bgl;
 
     // Load texture sources declared with @texture.
     const loaded: LoadedTexture[] = [];

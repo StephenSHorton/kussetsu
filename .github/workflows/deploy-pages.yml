@@ -25,14 +25,14 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build # build @kussetsu/core (dist)
-      - run: npm run build:demo # vite build -> examples/svelte-demo/dist
+      - run: npm run build # build @kussetsu/core + /svelte + /react (dist)
+      - run: npm run build:demo # vite build -> examples/react-demo/dist
       - uses: actions/configure-pages@v5
         with:
           enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: examples/svelte-demo/dist
+          path: examples/react-demo/dist
 
   deploy:
     needs: build

@@ -7,6 +7,7 @@
  *
  * Uniforms the library drives for you (the consumer never writes these):
  *   origin/size  — panel rect in scene UV (updated every frame)
+ *   parallax     — scene-UV offset added to the backdrop sample (drift tracking)
  *   radius       — corner radius (CSS px)
  *   blur         — frost amount (texture-uv radius), 0 = perfectly clear
  *   refraction   — edge bend strength
@@ -20,6 +21,7 @@ export const KUSSETSU_GLASS = /* wgsl */ `
 @texture backdrop;
 @uniform origin: vec2f;
 @uniform size: vec2f;
+@uniform parallax: vec2f;
 @uniform radius: f32;
 @uniform blur: f32;
 @uniform refraction: f32;
@@ -93,7 +95,9 @@ fn paint(uv: vec2f) -> vec4f {
 
   // Refraction concentrated in the rim band; interior stays seamless.
   let edge = smoothstep(max(u.rim, 0.001), 0.0, -d);
-  let baseUV = u.origin + uv * u.size;
+  // parallax shifts the sampled backdrop so the glass tracks a moving wallpaper
+  // (the visible backdrop is translated by the matching amount) — no edge seam.
+  let baseUV = u.origin + uv * u.size + u.parallax;
   let refrUV = baseUV + n * edge * u.refraction * u.size;
   let ca = u.dispersion * edge * length(u.size);
 
