@@ -19,15 +19,20 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.14.0
           registry-url: https://registry.npmjs.org
+
+      # npm trusted publishing (OIDC) needs npm >= 11.5.1.
+      - run: npm install -g npm@latest
 
       - run: npm ci
 
       - run: npm run build
 
-      # Opens a "Version Packages" PR when changesets exist; publishes to npm
-      # when that PR is merged (no changesets left). Needs the NPM_TOKEN secret.
+      # Opens a "Version Packages" PR when changesets exist; on merge (no
+      # changesets left) publishes via OIDC trusted publishing — no token, and
+      # provenance is attached automatically. Each package must have this repo +
+      # workflow set as its Trusted Publisher on npmjs.com.
       - name: Create release PR or publish
         uses: changesets/action@v1
         with:
@@ -35,4 +40,3 @@ jobs:
           publish: npm run release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
