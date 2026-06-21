@@ -40,6 +40,7 @@ export interface GlassPanel {
   rim: number; // rim band width, CSS px
   brighten: number; // overall lightening (1 = none)
   specular: number; // highlight/glint intensity (0 = none)
+  dispersion: number; // chromatic split at the rim (0 = none) — the colorful edge
 }
 
 // Glyph atlas: instanced per-glyph quads sampling a packed alpha atlas, tinted by
@@ -168,6 +169,7 @@ struct GU {
   params: vec4f, // refraction, blur, tint, rim
   tint: vec4f,   // rgba
   misc: vec4f,   // dpr, radius, brighten, specular
+  params2: vec4f,// dispersion, _, _, _
 };
 @group(0) @binding(0) var<uniform> u: GU;
 @group(0) @binding(1) var samp: sampler;
@@ -230,6 +232,17 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
     col = sum / wsum;
   } else {
     col = textureSampleLevel(backdrop, samp, suv, 0.0).rgb;
+  }
+
+  // dispersion: chromatic split at the rim — red sampled outward, blue inward
+  // along the normal, so the edge fringes color like a real glass edge. Fades as
+  // blur builds (a blurred backdrop shouldn't carry a crisp colored fringe).
+  let disp = u.params2.x;
+  if (disp > 0.0001) {
+    let dispUV = n * (edge * disp * (half.x + half.y)) * dpr / fb;
+    let caF = edge * (1.0 - clamp(blurAmt / 12.0, 0.0, 1.0));
+    col.r = mix(col.r, textureSampleLevel(backdrop, samp, suv + dispUV, 0.0).r, caF);
+    col.b = mix(col.b, textureSampleLevel(backdrop, samp, suv - dispUV, 0.0).b, caF);
   }
 
   col = mix(col, u.tint.rgb, tintAmt);
@@ -480,15 +493,16 @@ export class Painter {
     const clear = { r: 0, g: 0, b: 0, a: 0 };
 
     while (this.glassBuffers.length < glass.length) {
-      this.glassBuffers.push(this.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+      this.glassBuffers.push(this.device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     }
     glass.forEach((g, i) => {
-      const u = new Float32Array(20);
+      const u = new Float32Array(24);
       u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
       u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
       u[8] = g.refraction; u[9] = g.blur; u[10] = g.tint; u[11] = g.rim;
       u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
       u[16] = dpr; u[17] = g.radius; u[18] = g.brighten; u[19] = g.specular;
+      u[20] = g.dispersion;
       this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
     });
 

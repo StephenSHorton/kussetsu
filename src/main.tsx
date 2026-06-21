@@ -71,7 +71,7 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
   };
   header.addEventListener("click", () => setOpen(!open));
 
-  const addSlider = (label: string, key: "refraction" | "blur" | "tint" | "rim" | "brighten" | "specular", min: number, max: number, step: number) => {
+  const addSlider = (label: string, key: "refraction" | "blur" | "tint" | "rim" | "brighten" | "specular" | "dispersion", min: number, max: number, step: number) => {
     const row = document.createElement("div");
     const top = document.createElement("div");
     Object.assign(top.style, { display: "flex", justifyContent: "space-between", marginBottom: "3px" } as Partial<CSSStyleDeclaration>);
@@ -98,6 +98,7 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
     body.appendChild(row);
   };
   addSlider("Refraction", "refraction", 0, 0.4, 0.005);
+  addSlider("Dispersion", "dispersion", 0, 0.06, 0.002);
   addSlider("Blur", "blur", 0, 16, 0.5);
   addSlider("Tint", "tint", 0, 0.5, 0.01);
   addSlider("Rim width", "rim", 0, 80, 1);
