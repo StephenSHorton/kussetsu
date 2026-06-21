@@ -13,7 +13,7 @@ const MUTED: RGBA = [0.6, 0.65, 0.78, 1];
 const ACCENT: RGBA = [0.36, 0.46, 0.97, 1];
 const THEM: RGBA = [0.17, 0.19, 0.29, 1];
 const ROW_ACTIVE: RGBA = [0.14, 0.17, 0.29, 1];
-const GLASS = { refraction: 0.12, frost: 6, tint: 0.06, rim: 26 } as const;
+const GLASS = { refraction: 0.1, frost: 2.5, tint: 0.05, rim: 24 } as const;
 const SIDEBAR_W = 300;
 const HEADER_H = 64;
 const COMPOSER_H = 76;
@@ -152,25 +152,20 @@ export function ChatApp() {
         </view>
       </view>
 
-      {/* ── Glass header (refracts the thread) ── */}
-      <view glass={GLASS} style={{ absolute: { x: mainX, y: 0 }, width: mainW, height: HEADER_H, radius: 0 }} />
-      <view style={{ absolute: { x: mainX + 24, y: 15 }, direction: "row", align: "center", gap: 12 }}>
+      {/* ── Glass header: refracts the thread; its label sits crisply ON the glass ── */}
+      <view glass={GLASS} style={{ absolute: { x: mainX, y: 0 }, width: mainW, height: HEADER_H, radius: 0, direction: "row", align: "center", gap: 12, padding: 24 }}>
         <Avatar color={active.color} size={34} />
         <text style={{ fontSize: 17, fontWeight: 700, color: WHITE }}>{active.name}</text>
       </view>
 
-      {/* ── Glass composer ── */}
-      <view glass={GLASS} style={{ absolute: { x: mainX, y: vh - COMPOSER_H }, width: mainW, height: COMPOSER_H, radius: 0 }} />
-      <view
-        editable
-        value={draft}
-        onChange={setDraft}
-        style={{ absolute: { x: mainX + 24, y: vh - COMPOSER_H + 18 }, width: mainW - 150, height: 40, direction: "row", align: "center", padding: 16, radius: 20, background: [0.12, 0.14, 0.23, 1] }}
-      >
-        <text style={{ fontSize: 15, color: draft ? WHITE : MUTED }}>{draft || "Message…"}</text>
-      </view>
-      <view role="button" ariaLabel="Send message" onActivate={send} style={{ absolute: { x: vw - 112, y: vh - COMPOSER_H + 18 }, width: 88, height: 40, direction: "row", align: "center", justify: "center", radius: 20, background: ACCENT }}>
-        <text style={{ fontSize: 14, fontWeight: 700, color: WHITE }}>Send</text>
+      {/* ── Glass composer: input + Send sit ON the glass ── */}
+      <view glass={GLASS} style={{ absolute: { x: mainX, y: vh - COMPOSER_H }, width: mainW, height: COMPOSER_H, radius: 0, direction: "row", align: "center", gap: 12, padding: 18 }}>
+        <view editable value={draft} onChange={setDraft} style={{ grow: 1, height: 40, direction: "row", align: "center", padding: 16, radius: 20, background: [0.12, 0.14, 0.23, 1] }}>
+          <text style={{ fontSize: 15, color: draft ? WHITE : MUTED }}>{draft || "Message…"}</text>
+        </view>
+        <view role="button" ariaLabel="Send message" onActivate={send} style={{ width: 88, height: 40, shrink: 0, direction: "row", align: "center", justify: "center", radius: 20, background: ACCENT }}>
+          <text style={{ fontSize: 14, fontWeight: 700, color: WHITE }}>Send</text>
+        </view>
       </view>
     </view>
   );

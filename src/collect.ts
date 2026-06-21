@@ -5,6 +5,7 @@ import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./s
 import type { ClipRect, GlassPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { caretRect, measureWidth, selectionRects } from "./text";
+import { glassTuning } from "./glassTuning";
 
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];
 const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
@@ -50,6 +51,7 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
     if (s.background && !n.props.glass) {
       out.push({ x, y, w, h, radius: (s.radius ?? 0) * cam.scale, color: s.background, clip });
     }
+    if (n.props.glass) return; // glass children render in the FOREGROUND pass, not the backdrop
     let childClip = clip;
     let childSy = sy;
     if (s.overflow) {
@@ -82,6 +84,7 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
         if (str) out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy) * cam.scale + cam.ty, text: str, size, weight, color, clip });
       }
     }
+    if (n.props.glass) return; // glass children render in the FOREGROUND pass
     let childClip = clip;
     let childSy = sy;
     if (s.overflow) {
@@ -95,8 +98,44 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
   return out;
 }
 
+/** Content INSIDE glass nodes — drawn AFTER the glass composite so labels/inputs
+ *  sit crisply ON the glass instead of being refracted by it. */
+export function collectForeground(root: ElementNode, cam: Camera): { rects: Rect[]; texts: TextItem[] } {
+  const rects: Rect[] = [];
+  const texts: TextItem[] = [];
+  const emit = (n: ElementNode) => {
+    const s = n.props.style ?? {};
+    const x = n.x * cam.scale + cam.tx;
+    const y = n.y * cam.scale + cam.ty;
+    if (s.background) rects.push({ x, y, w: n.w * cam.scale, h: n.h * cam.scale, radius: (s.radius ?? 0) * cam.scale, color: s.background });
+    if (n.type === "text") {
+      const size = (s.fontSize ?? 16) * cam.scale;
+      const weight = s.fontWeight ?? 400;
+      const color = s.color ?? ([1, 1, 1, 1] as RGBA);
+      if (n.wrapped) {
+        for (const L of n.wrapped.result.lines) if (L.text) texts.push({ x, y: (n.y + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color });
+      } else {
+        const str = textOf(n);
+        if (str) texts.push({ x, y, text: str, size, weight, color });
+      }
+    }
+    for (const c of n.children) if (c.kind === "element") emit(c);
+  };
+  const find = (n: ElementNode) => {
+    if (n.props.glass) {
+      for (const c of n.children) if (c.kind === "element") emit(c);
+      return; // nested glass not handled — fine for now
+    }
+    for (const c of n.children) if (c.kind === "element") find(c);
+  };
+  find(root);
+  return { rects, texts };
+}
+
 export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {
   const out: GlassPanel[] = [];
+  // When the slider panel is live, its params override every panel's per-node spec.
+  const t = glassTuning.enabled ? glassTuning.params : null;
   const walk = (n: ElementNode) => {
     const g = n.props.glass;
     if (g) {
@@ -106,11 +145,12 @@ export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {
         w: n.w * cam.scale,
         h: n.h * cam.scale,
         radius: (n.props.style?.radius ?? 22) * cam.scale,
-        refraction: g.refraction ?? 0.09,
-        frost: (g.frost ?? 2) * cam.scale,
-        tint: g.tint ?? 0.05,
-        tintColor: g.tintColor ?? GLASS_TINT,
-        rim: (g.rim ?? 22) * cam.scale,
+        refraction: t ? t.refraction : (g.refraction ?? 0.09),
+        frost: (t ? t.frost : (g.frost ?? 2)) * cam.scale,
+        tint: t ? t.tint : (g.tint ?? 0.05),
+        tintColor: t ? t.tintColor : (g.tintColor ?? GLASS_TINT),
+        rim: (t ? t.rim : (g.rim ?? 22)) * cam.scale,
+        brighten: t ? t.brighten : 1.03,
       });
     }
     for (const c of n.children) if (c.kind === "element") walk(c);

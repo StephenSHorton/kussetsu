@@ -38,6 +38,7 @@ export interface GlassPanel {
   tint: number; // 0..1 mix toward tintColor
   tintColor: RGBA;
   rim: number; // rim band width, CSS px
+  brighten: number; // overall lightening (1 = none)
 }
 
 // Glyph atlas: instanced per-glyph quads sampling a packed alpha atlas, tinted by
@@ -165,7 +166,7 @@ struct GU {
   fbvp: vec4f,   // fb.x, fb.y (physical px),  vp.x, vp.y (CSS px)
   params: vec4f, // refraction, frost, tint, rim
   tint: vec4f,   // rgba
-  misc: vec4f,   // dpr, radius, _, _
+  misc: vec4f,   // dpr, radius, brighten, _
 };
 @group(0) @binding(0) var<uniform> u: GU;
 @group(0) @binding(1) var samp: sampler;
@@ -210,19 +211,27 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
 
   var col = textureSample(backdrop, samp, suv).rgb;
   if (frost > 0.001) {
+    // 13-tap weighted disc (center + inner ring of 8 + outer ring of 4) — much
+    // smoother than the old 7-tap cross, so frost reads as glass not "beer goggles".
     let r = frost * dpr / fb;
-    var acc = col;
-    acc += textureSample(backdrop, samp, suv + vec2f(r.x, 0.0)).rgb;
-    acc += textureSample(backdrop, samp, suv - vec2f(r.x, 0.0)).rgb;
-    acc += textureSample(backdrop, samp, suv + vec2f(0.0, r.y)).rgb;
-    acc += textureSample(backdrop, samp, suv - vec2f(0.0, r.y)).rgb;
-    acc += textureSample(backdrop, samp, suv + r*0.7).rgb;
-    acc += textureSample(backdrop, samp, suv - r*0.7).rgb;
-    col = acc / 7.0;
+    var acc = col * 3.0;
+    acc += textureSample(backdrop, samp, suv + vec2f( r.x, 0.0)).rgb * 1.5;
+    acc += textureSample(backdrop, samp, suv + vec2f(-r.x, 0.0)).rgb * 1.5;
+    acc += textureSample(backdrop, samp, suv + vec2f(0.0,  r.y)).rgb * 1.5;
+    acc += textureSample(backdrop, samp, suv + vec2f(0.0, -r.y)).rgb * 1.5;
+    acc += textureSample(backdrop, samp, suv + vec2f( r.x,  r.y)*0.7).rgb * 1.2;
+    acc += textureSample(backdrop, samp, suv + vec2f(-r.x,  r.y)*0.7).rgb * 1.2;
+    acc += textureSample(backdrop, samp, suv + vec2f( r.x, -r.y)*0.7).rgb * 1.2;
+    acc += textureSample(backdrop, samp, suv + vec2f(-r.x, -r.y)*0.7).rgb * 1.2;
+    acc += textureSample(backdrop, samp, suv + vec2f( r.x, 0.0)*1.8).rgb * 0.6;
+    acc += textureSample(backdrop, samp, suv + vec2f(-r.x, 0.0)*1.8).rgb * 0.6;
+    acc += textureSample(backdrop, samp, suv + vec2f(0.0,  r.y)*1.8).rgb * 0.6;
+    acc += textureSample(backdrop, samp, suv + vec2f(0.0, -r.y)*1.8).rgb * 0.6;
+    col = acc / 16.2;
   }
 
   col = mix(col, u.tint.rgb, tintAmt);
-  col *= 1.06;
+  col *= u.misc.z; // brighten (live-tunable)
 
   // rim highlight + top sheen — the glassy edge
   let rimHi = smoothstep(2.0, 0.0, abs(d));
@@ -305,9 +314,8 @@ export class Painter {
   private packX = 1;
   private packY = 1;
   private packRowH = 0;
-  private glyphBuf: GPUBuffer | null = null;
-  private glyphCap = 0;
   private glyphScratch = new Float32Array(0);
+  private pendingBuffers: GPUBuffer[] = []; // transient per-pass buffers, freed after submit
 
   private constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -470,7 +478,7 @@ export class Painter {
       u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
       u[8] = g.refraction; u[9] = g.frost; u[10] = g.tint; u[11] = g.rim;
       u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
-      u[16] = dpr; u[17] = g.radius;
+      u[16] = dpr; u[17] = g.radius; u[18] = g.brighten;
       this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
     });
 
@@ -613,19 +621,34 @@ export class Painter {
       }
     }
     if (n === 0) return;
-    if (n > this.glyphCap) {
-      this.glyphBuf?.destroy();
-      this.glyphCap = Math.ceil(n * 1.3);
-      this.glyphBuf = this.device.createBuffer({ size: this.glyphCap * GLYPH_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-    }
-    this.device.queue.writeBuffer(this.glyphBuf!, 0, data, 0, n * FLOATS_PER_GLYPH);
+    // A fresh buffer per call: this runs in BOTH pass 1 (backdrop) and pass 3
+    // (foreground) of one frame; a shared buffer's second writeBuffer would clobber
+    // the first before the command buffer executes. Freed after submit.
+    const buf = this.device.createBuffer({ size: n * GLYPH_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(buf, 0, data, 0, n * FLOATS_PER_GLYPH);
     pass.setPipeline(this.glyphPipeline);
     pass.setBindGroup(0, this.atlasBindGroup);
-    pass.setVertexBuffer(0, this.glyphBuf!);
+    pass.setVertexBuffer(0, buf);
     pass.draw(6, n);
+    this.pendingBuffers.push(buf);
   }
 
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[]) {
+  private uploadRects(rects: Rect[]): GPUBuffer | null {
+    if (!rects.length) return null;
+    const buf = this.device.createBuffer({ size: rects.length * RECT_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    const data = new Float32Array(rects.length * FLOATS_PER_RECT);
+    rects.forEach((r, i) => {
+      const o = i * FLOATS_PER_RECT;
+      data[o] = r.x; data[o + 1] = r.y; data[o + 2] = r.w; data[o + 3] = r.h;
+      data[o + 4] = r.radius;
+      data[o + 8] = r.color[0]; data[o + 9] = r.color[1]; data[o + 10] = r.color[2]; data[o + 11] = r.color[3];
+      if (r.clip) { data[o + 12] = r.clip[0]; data[o + 13] = r.clip[1]; data[o + 14] = r.clip[2]; data[o + 15] = r.clip[3]; }
+    });
+    this.device.queue.writeBuffer(buf, 0, data);
+    return buf;
+  }
+
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -634,20 +657,8 @@ export class Painter {
     // identity camera — rects from collectRects() are already screen-space.
     this.device.queue.writeBuffer(this.vpBuffer, 0, new Float32Array([cssWidth, cssHeight, 0, 0, 0, 0, 1, 0]));
 
-    // rect instances
-    let instanceBuffer: GPUBuffer | null = null;
-    if (rects.length) {
-      instanceBuffer = this.device.createBuffer({ size: rects.length * RECT_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-      const data = new Float32Array(rects.length * FLOATS_PER_RECT);
-      rects.forEach((r, i) => {
-        const o = i * FLOATS_PER_RECT;
-        data[o] = r.x; data[o + 1] = r.y; data[o + 2] = r.w; data[o + 3] = r.h;
-        data[o + 4] = r.radius;
-        data[o + 8] = r.color[0]; data[o + 9] = r.color[1]; data[o + 10] = r.color[2]; data[o + 11] = r.color[3];
-        if (r.clip) { data[o + 12] = r.clip[0]; data[o + 13] = r.clip[1]; data[o + 14] = r.clip[2]; data[o + 15] = r.clip[3]; }
-      });
-      this.device.queue.writeBuffer(instanceBuffer, 0, data);
-    }
+    const instanceBuffer = this.uploadRects(rects);
+    const fgBuffer = fg ? this.uploadRects(fg.rects) : null;
 
     const encoder = this.device.createCommandEncoder();
 
@@ -667,8 +678,28 @@ export class Painter {
     // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass).
     this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
 
+    // PASS 3 — foreground: a glass node's children, drawn ON the glass (crisp, not
+    // refracted by it). getCurrentTexture() returns the same canvas texture as the
+    // glass pass, so loadOp "load" preserves what compositeGlass drew.
+    if (fg && (fgBuffer || fg.texts.length)) {
+      const p3 = encoder.beginRenderPass({
+        colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: "load", storeOp: "store" }],
+      });
+      if (fgBuffer) {
+        p3.setPipeline(this.rectPipeline);
+        p3.setBindGroup(0, this.rectVpBindGroup);
+        p3.setVertexBuffer(0, fgBuffer);
+        p3.draw(6, fg.rects.length);
+      }
+      this.drawGlyphs(p3, fg.texts);
+      p3.end();
+    }
+
     this.device.queue.submit([encoder.finish()]);
     instanceBuffer?.destroy();
+    fgBuffer?.destroy();
+    for (const b of this.pendingBuffers) b.destroy();
+    this.pendingBuffers.length = 0;
   }
 
   /** Upload the static node graph ONCE (WORLD coords, RECT instance layout). */
@@ -708,5 +739,7 @@ export class Painter {
     // composite glass over the backdrop (ping-pong = glass-over-glass).
     this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
     this.device.queue.submit([encoder.finish()]);
+    for (const b of this.pendingBuffers) b.destroy();
+    this.pendingBuffers.length = 0;
   }
 }
