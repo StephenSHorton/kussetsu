@@ -4,7 +4,7 @@ import { Painter } from "./webgpu";
 import { SemanticsOverlay } from "./a11y";
 import { collectRects, collectTexts, collectSemantics, collectGlass, collectForeground, collectScrollRegions, collectSelection, collectSelectable, collectEditable, editCaretRect, type ScrollRegion, type Selection, type SelectableRegion, type EditableRegion } from "./collect";
 import { hitTest, measureWidth } from "./text";
-import { glassTuning } from "./glassTuning";
+import { glassTuning, GLASS_DEFAULTS } from "./glassTuning";
 import type { Camera, Container, ElementNode, RGBA } from "./scene";
 import { App } from "./App";
 import { ChatApp } from "./ChatApp";
@@ -43,33 +43,32 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
     userSelect: "none",
   } as Partial<CSSStyleDeclaration>);
 
-  const header = document.createElement("button");
-  Object.assign(header.style, {
-    all: "unset",
-    boxSizing: "border-box",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-    padding: "10px 12px",
-    cursor: "pointer",
-    fontWeight: "700",
-    color: "#eef1f8",
-  } as Partial<CSSStyleDeclaration>);
-  header.innerHTML = `<span>✦ Glass controls</span><span class="chev">▸</span>`;
+  const header = document.createElement("div");
+  Object.assign(header.style, { boxSizing: "border-box", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", padding: "10px 12px" } as Partial<CSSStyleDeclaration>);
+  const titleBtn = document.createElement("button");
+  Object.assign(titleBtn.style, { all: "unset", display: "flex", alignItems: "center", gap: "6px", flex: "1", cursor: "pointer", fontWeight: "700", color: "#eef1f8" } as Partial<CSSStyleDeclaration>);
+  titleBtn.innerHTML = `<span class="chev">▸</span><span>✦ Glass controls</span>`;
+  const resetBtn = document.createElement("button");
+  resetBtn.textContent = "Reset";
+  Object.assign(resetBtn.style, { all: "unset", cursor: "pointer", fontSize: "11px", fontWeight: "600", color: "#9fb0ff", padding: "3px 9px", borderRadius: "7px", background: "rgba(255,255,255,0.08)" } as Partial<CSSStyleDeclaration>);
+  header.appendChild(titleBtn);
+  header.appendChild(resetBtn);
 
   const body = document.createElement("div");
   Object.assign(body.style, { padding: "2px 12px 12px", display: "none", flexDirection: "column", gap: "11px" } as Partial<CSSStyleDeclaration>);
+
+  // Each control registers a sync() so Reset can push default values back into it.
+  const controls: Array<() => void> = [];
 
   let open = false;
   const setOpen = (v: boolean) => {
     open = v;
     body.style.display = v ? "flex" : "none";
-    (header.querySelector(".chev") as HTMLElement).textContent = v ? "▾" : "▸";
+    (titleBtn.querySelector(".chev") as HTMLElement).textContent = v ? "▾" : "▸";
     if (v) glassTuning.enabled = true; // once opened, tuning persists (even collapsed)
     onRender();
   };
-  header.addEventListener("click", () => setOpen(!open));
+  titleBtn.addEventListener("click", () => setOpen(!open));
 
   const addSlider = (label: string, key: "refraction" | "blur" | "tint" | "rim" | "brighten" | "specular" | "dispersion", min: number, max: number, step: number) => {
     const row = document.createElement("div");
@@ -93,12 +92,16 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
       val.textContent = v.toFixed(step < 1 ? 3 : 0);
       onRender();
     });
+    controls.push(() => {
+      input.value = String(glassTuning.params[key]);
+      val.textContent = glassTuning.params[key].toFixed(step < 1 ? 3 : 0);
+    });
     row.appendChild(top);
     row.appendChild(input);
     body.appendChild(row);
   };
   addSlider("Refraction", "refraction", 0, 0.4, 0.005);
-  addSlider("Dispersion", "dispersion", 0, 0.06, 0.002);
+  addSlider("Dispersion", "dispersion", 0, 0.06, 0.001);
   addSlider("Blur", "blur", 0, 16, 0.5);
   addSlider("Tint", "tint", 0, 0.5, 0.01);
   addSlider("Rim width", "rim", 0, 80, 1);
@@ -116,8 +119,17 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
     glassTuning.params.tintColor = hexToRgba(color.value);
     onRender();
   });
+  controls.push(() => {
+    color.value = rgbaToHex(glassTuning.params.tintColor);
+  });
   crow.appendChild(color);
   body.appendChild(crow);
+
+  resetBtn.addEventListener("click", () => {
+    Object.assign(glassTuning.params, GLASS_DEFAULTS, { tintColor: [...GLASS_DEFAULTS.tintColor] });
+    for (const sync of controls) sync();
+    onRender();
+  });
 
   wrap.appendChild(header);
   wrap.appendChild(body);

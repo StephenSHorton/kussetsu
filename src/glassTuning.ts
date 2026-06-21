@@ -15,7 +15,9 @@ export interface GlassParams {
   tintColor: RGBA;
 }
 
+export const GLASS_DEFAULTS: GlassParams = { refraction: 0.1, blur: 2.5, tint: 0.05, rim: 24, brighten: 1.03, specular: 0.5, dispersion: 0.025, tintColor: [0.82, 0.87, 1, 1] };
+
 export const glassTuning: { enabled: boolean; params: GlassParams } = {
   enabled: false,
-  params: { refraction: 0.1, blur: 2.5, tint: 0.05, rim: 24, brighten: 1.03, specular: 0.5, dispersion: 0.025, tintColor: [0.82, 0.87, 1, 1] },
+  params: { ...GLASS_DEFAULTS, tintColor: [...GLASS_DEFAULTS.tintColor] as RGBA },
 };
