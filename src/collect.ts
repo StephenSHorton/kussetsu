@@ -152,7 +152,7 @@ export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {
         rim: (t ? t.rim : (g.rim ?? 22)) * cam.scale,
         brighten: t ? t.brighten : 1.03,
         specular: t ? t.specular : (g.specular ?? 0.5),
-        dispersion: t ? t.dispersion : (g.dispersion ?? 0.012),
+        dispersion: t ? t.dispersion : (g.dispersion ?? 0.025),
       });
     }
     for (const c of n.children) if (c.kind === "element") walk(c);

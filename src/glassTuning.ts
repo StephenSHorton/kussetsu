@@ -17,5 +17,5 @@ export interface GlassParams {
 
 export const glassTuning: { enabled: boolean; params: GlassParams } = {
   enabled: false,
-  params: { refraction: 0.1, blur: 2.5, tint: 0.05, rim: 24, brighten: 1.03, specular: 0.5, dispersion: 0.012, tintColor: [0.82, 0.87, 1, 1] },
+  params: { refraction: 0.1, blur: 2.5, tint: 0.05, rim: 24, brighten: 1.03, specular: 0.5, dispersion: 0.025, tintColor: [0.82, 0.87, 1, 1] },
 };

@@ -36,7 +36,7 @@ export interface GlassSpec {
   tintColor?: RGBA; // default cool white
   rim?: number; // default 22 — rim band width, CSS px
   specular?: number; // default 0.5 — highlight/glint intensity
-  dispersion?: number; // default 0.012 — chromatic rim split (the colorful edge)
+  dispersion?: number; // default 0.025 — chromatic rim split (the colorful edge)
 }
 
 export type Role = "button" | "heading" | "paragraph";
