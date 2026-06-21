@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RGBA } from "./scene";
+import type { RGBA } from "../core/scene";
 
 const WHITE: RGBA = [0.96, 0.97, 1, 1];
 const MUTED: RGBA = [0.62, 0.68, 0.82, 1];

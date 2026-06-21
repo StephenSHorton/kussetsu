@@ -1,8 +1,8 @@
 // Dev-only: a DOM slider panel that drives the live glass tuning params. Not part
 // of the renderer core — it just mutates glassTuning (which collectGlass reads when
 // enabled) and calls onRender() to repaint. Examples mount it; apps don't ship it.
-import { glassTuning, GLASS_DEFAULTS } from "./glassTuning";
-import type { RGBA } from "./scene";
+import { glassTuning, GLASS_DEFAULTS } from "../core/glassTuning";
+import type { RGBA } from "../core/scene";
 
 const rgbaToHex = (c: RGBA) => "#" + [0, 1, 2].map((i) => Math.round(c[i] * 255).toString(16).padStart(2, "0")).join("");
 const hexToRgba = (h: string): RGBA => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255, 1];

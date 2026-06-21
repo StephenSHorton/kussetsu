@@ -3,9 +3,9 @@
 // rect (ONE instanced draw, camera in-shader); labels + DOM a11y proxies are
 // VIRTUALIZED to what's on-screen and big enough to read — so zoomed out it's
 // 10k rects with zero DOM, and zoomed in only ~visible nodes get a proxy.
-import { FLOATS_PER_RECT, Painter, type GlassPanel, type TextItem } from "./webgpu";
-import { SemanticsOverlay, type SemNode } from "./a11y";
-import type { RGBA } from "./scene";
+import { FLOATS_PER_RECT, Painter, type GlassPanel, type TextItem } from "../core/webgpu";
+import { SemanticsOverlay, type SemNode } from "../core/a11y";
+import type { RGBA } from "../core/scene";
 const COUNT = 10000;
 const COLS = 125;
 const GAP_X = 160;

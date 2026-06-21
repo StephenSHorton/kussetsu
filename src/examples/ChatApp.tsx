@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { RGBA } from "./scene";
+import type { RGBA } from "../core/scene";
 
 // A real app on the framework: a glass chat client. Exercises layout, scrolling,
 // refractive glass (header + composer over the messages), selectable bubble text,

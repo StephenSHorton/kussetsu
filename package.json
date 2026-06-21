@@ -2,9 +2,9 @@
   "name": "kussetsu",
   "version": "0.1.0",
   "description": "Kussetsu — React-authored UI painted entirely on the GPU (WebGPU), with the DOM as an invisible accessibility + input layer.",
-  "main": "src/index.ts",
-  "module": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "src/core/index.ts",
+  "module": "src/core/index.ts",
+  "types": "src/core/index.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite",

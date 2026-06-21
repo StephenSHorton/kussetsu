@@ -1,9 +1,9 @@
 // Examples entry: pick a demo by URL and mount it on a Kussetsu root. The renderer
 // itself is createGpuRoot() in ./runtime — everything here is example/dev wiring.
 import { createElement, type ComponentType } from "react";
-import { createGpuRoot, type GpuRootOptions } from "./runtime";
+import { createGpuRoot, type GpuRootOptions } from "../core/runtime";
 import { buildGlassPanel } from "./devPanel";
-import { glassTuning } from "./glassTuning";
+import { glassTuning } from "../core/glassTuning";
 import { App } from "./App";
 import { ChatApp } from "./ChatApp";
 import { runStress } from "./stress";
