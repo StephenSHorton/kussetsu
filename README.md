@@ -62,6 +62,11 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
   keeping the single instanced draw); the collectors apply a scroll offset and
   intersect nested clips; the wheel routes to a scroll region under the cursor
   (else zoom). The `?react` demo has a fixed-height list that clips + scrolls.
+- **Glass-over-glass — DONE.** Glass composites with a **ping-pong** between two
+  backdrop textures, so each panel refracts the accumulated result (base + earlier
+  glass). Two overlapping panels in `?react` show the top refracting the bottom.
+- **Draggable nodes — DONE.** The `?react` demo is now a little node editor —
+  every node card is `draggable` (pointer + arrow-key drag via the overlay).
 
 ## What it deliberately does NOT (yet) solve
 Text shaping/IME/i18n, scrolling + clipping, glass-over-glass stacking, text

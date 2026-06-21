@@ -225,9 +225,12 @@ export class Painter {
   private rectVpBindGroup!: GPUBindGroup;
   private sampler!: GPUSampler;
 
+  // Two backdrop textures: ping-pong so each glass panel refracts the accumulated
+  // result (base + previously-drawn glass) = glass-over-glass.
   private backdropTex: GPUTexture | null = null;
+  private backdropTex2: GPUTexture | null = null;
   private backdropView: GPUTextureView | null = null;
-  private blitBindGroup: GPUBindGroup | null = null;
+  private backdropView2: GPUTextureView | null = null;
   private backdropW = 0;
   private backdropH = 0;
 
@@ -333,21 +336,73 @@ export class Painter {
   private ensureBackdrop(w: number, h: number) {
     if (this.backdropTex && this.backdropW === w && this.backdropH === h) return;
     this.backdropTex?.destroy();
-    this.backdropTex = this.device.createTexture({
-      size: [w, h],
-      format: this.format,
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    });
+    this.backdropTex2?.destroy();
+    const make = () =>
+      this.device.createTexture({
+        size: [w, h],
+        format: this.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      });
+    this.backdropTex = make();
+    this.backdropTex2 = make();
     this.backdropView = this.backdropTex.createView();
+    this.backdropView2 = this.backdropTex2.createView();
     this.backdropW = w;
     this.backdropH = h;
-    this.blitBindGroup = this.device.createBindGroup({
-      layout: this.blitPipeline.getBindGroupLayout(0),
-      entries: [
-        { binding: 0, resource: this.sampler },
-        { binding: 1, resource: this.backdropView },
-      ],
+  }
+
+  // Composite glass over the backdrop with ping-pong, so each panel refracts the
+  // accumulated result (glass-over-glass). Builds glass uniforms + bind groups.
+  private compositeGlass(encoder: GPUCommandEncoder, glass: GlassPanel[], fbw: number, fbh: number, cssWidth: number, cssHeight: number, dpr: number) {
+    const canvasView = this.context.getCurrentTexture().createView();
+    const clear = { r: 0, g: 0, b: 0, a: 0 };
+
+    while (this.glassBuffers.length < glass.length) {
+      this.glassBuffers.push(this.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+    }
+    glass.forEach((g, i) => {
+      const u = new Float32Array(20);
+      u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
+      u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
+      u[8] = g.refraction; u[9] = g.frost; u[10] = g.tint; u[11] = g.rim;
+      u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
+      u[16] = dpr; u[17] = g.radius;
+      this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
     });
+
+    const blitBG = (view: GPUTextureView) =>
+      this.device.createBindGroup({ layout: this.blitPipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: view }] });
+    const glassBG = (i: number, view: GPUTextureView) =>
+      this.device.createBindGroup({ layout: this.glassPipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: this.glassBuffers[i] } }, { binding: 1, resource: this.sampler }, { binding: 2, resource: view }] });
+
+    if (glass.length === 0) {
+      const p = encoder.beginRenderPass({ colorAttachments: [{ view: canvasView, clearValue: clear, loadOp: "clear", storeOp: "store" }] });
+      p.setPipeline(this.blitPipeline);
+      p.setBindGroup(0, blitBG(this.backdropView!));
+      p.draw(3);
+      p.end();
+      return;
+    }
+
+    let srcView = this.backdropView!;
+    let dstView = this.backdropView2!;
+    for (let i = 0; i < glass.length; i++) {
+      const last = i === glass.length - 1;
+      const target = last ? canvasView : dstView; // last panel renders straight to the canvas
+      const p = encoder.beginRenderPass({ colorAttachments: [{ view: target, clearValue: clear, loadOp: "clear", storeOp: "store" }] });
+      p.setPipeline(this.blitPipeline);
+      p.setBindGroup(0, blitBG(srcView)); // copy accumulated backdrop
+      p.draw(3);
+      p.setPipeline(this.glassPipeline);
+      p.setBindGroup(0, glassBG(i, srcView)); // refract it
+      p.draw(6);
+      p.end();
+      if (!last) {
+        const t = srcView;
+        srcView = dstView;
+        dstView = t;
+      }
+    }
   }
 
   private getText(item: TextItem) {
@@ -427,28 +482,6 @@ export class Painter {
       });
     });
 
-    // glass uniforms + bind groups (sample the backdrop)
-    while (this.glassBuffers.length < glass.length) {
-      this.glassBuffers.push(this.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
-    }
-    const glassBindGroups: GPUBindGroup[] = glass.map((g, i) => {
-      const u = new Float32Array(20);
-      u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
-      u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
-      u[8] = g.refraction; u[9] = g.frost; u[10] = g.tint; u[11] = g.rim;
-      u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
-      u[16] = dpr; u[17] = g.radius;
-      this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
-      return this.device.createBindGroup({
-        layout: this.glassPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.glassBuffers[i] } },
-          { binding: 1, resource: this.sampler },
-          { binding: 2, resource: this.backdropView! },
-        ],
-      });
-    });
-
     const encoder = this.device.createCommandEncoder();
 
     // PASS 1 — non-glass content -> backdrop texture
@@ -468,19 +501,8 @@ export class Painter {
     });
     p1.end();
 
-    // PASS 2 — blit backdrop to canvas, then glass on top
-    const p2 = encoder.beginRenderPass({
-      colorAttachments: [{ view: this.context.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
-    });
-    p2.setPipeline(this.blitPipeline);
-    p2.setBindGroup(0, this.blitBindGroup!);
-    p2.draw(3);
-    glassBindGroups.forEach((bg) => {
-      p2.setPipeline(this.glassPipeline);
-      p2.setBindGroup(0, bg);
-      p2.draw(6);
-    });
-    p2.end();
+    // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass).
+    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
 
     this.device.queue.submit([encoder.finish()]);
     instanceBuffer?.destroy();
@@ -526,27 +548,6 @@ export class Painter {
       });
     });
 
-    while (this.glassBuffers.length < glass.length) {
-      this.glassBuffers.push(this.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
-    }
-    const glassBindGroups = glass.map((g, i) => {
-      const u = new Float32Array(20);
-      u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
-      u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
-      u[8] = g.refraction; u[9] = g.frost; u[10] = g.tint; u[11] = g.rim;
-      u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
-      u[16] = dpr; u[17] = g.radius;
-      this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
-      return this.device.createBindGroup({
-        layout: this.glassPipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: this.glassBuffers[i] } },
-          { binding: 1, resource: this.sampler },
-          { binding: 2, resource: this.backdropView! },
-        ],
-      });
-    });
-
     const encoder = this.device.createCommandEncoder();
     const p1 = encoder.beginRenderPass({
       colorAttachments: [{ view: this.backdropView!, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
@@ -564,18 +565,8 @@ export class Painter {
     });
     p1.end();
 
-    const p2 = encoder.beginRenderPass({
-      colorAttachments: [{ view: this.context.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
-    });
-    p2.setPipeline(this.blitPipeline);
-    p2.setBindGroup(0, this.blitBindGroup!);
-    p2.draw(3);
-    glassBindGroups.forEach((bg) => {
-      p2.setPipeline(this.glassPipeline);
-      p2.setBindGroup(0, bg);
-      p2.draw(6);
-    });
-    p2.end();
+    // composite glass over the backdrop (ping-pong = glass-over-glass).
+    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
     this.device.queue.submit([encoder.finish()]);
   }
 }
