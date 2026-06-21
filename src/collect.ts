@@ -151,6 +151,7 @@ export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {
         tintColor: t ? t.tintColor : (g.tintColor ?? GLASS_TINT),
         rim: (t ? t.rim : (g.rim ?? 22)) * cam.scale,
         brighten: t ? t.brighten : 1.03,
+        specular: t ? t.specular : (g.specular ?? 0.5),
       });
     }
     for (const c of n.children) if (c.kind === "element") walk(c);

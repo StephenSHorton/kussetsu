@@ -35,6 +35,7 @@ export interface GlassSpec {
   tint?: number; // default 0.05 — mix toward tintColor
   tintColor?: RGBA; // default cool white
   rim?: number; // default 22 — rim band width, CSS px
+  specular?: number; // default 0.5 — highlight/glint intensity
 }
 
 export type Role = "button" | "heading" | "paragraph";

@@ -39,6 +39,7 @@ export interface GlassPanel {
   tintColor: RGBA;
   rim: number; // rim band width, CSS px
   brighten: number; // overall lightening (1 = none)
+  specular: number; // highlight/glint intensity (0 = none)
 }
 
 // Glyph atlas: instanced per-glyph quads sampling a packed alpha atlas, tinted by
@@ -166,7 +167,7 @@ struct GU {
   fbvp: vec4f,   // fb.x, fb.y (physical px),  vp.x, vp.y (CSS px)
   params: vec4f, // refraction, blur, tint, rim
   tint: vec4f,   // rgba
-  misc: vec4f,   // dpr, radius, brighten, _
+  misc: vec4f,   // dpr, radius, brighten, specular
 };
 @group(0) @binding(0) var<uniform> u: GU;
 @group(0) @binding(1) var samp: sampler;
@@ -234,12 +235,20 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
   col = mix(col, u.tint.rgb, tintAmt);
   col *= u.misc.z; // brighten (live-tunable)
 
-  // rim highlight + top sheen — the glassy edge
+  // thin rim edge — keeps the glass shape readable, always on
   let rimHi = smoothstep(2.0, 0.0, abs(d));
-  let lit = clamp(0.5 - 0.6*n.y - 0.2*n.x, 0.0, 1.0);
-  col += vec3f(1.0) * rimHi * (0.14 + 0.35*lit);
+  col += vec3f(1.0) * rimHi * 0.12;
+
+  // specular: a Blinn-Phong glint where the beveled rim faces a top-left light,
+  // plus a soft top sheen so the body catches light. Scaled by the slider.
+  let spec = u.misc.w;
+  let N = normalize(vec3f(n * edge, 0.55)); // flat in the interior, tilts out at the bevel
+  let L = normalize(vec3f(-0.4, -0.8, 0.5));
+  let H = normalize(L + vec3f(0.0, 0.0, 1.0));
+  let glint = pow(max(dot(N, H), 0.0), 12.0) * edge;
   let ty = in.local.y / half.y * 0.5 + 0.5; // 0 top, 1 bottom
-  col += vec3f(1.0) * smoothstep(0.42, 0.0, ty) * 0.06;
+  let sheen = smoothstep(0.45, 0.0, ty);
+  col += vec3f(1.0) * (glint * 1.3 + sheen * 0.16) * spec;
 
   let a = shape;
   return vec4f(col * a, a);
@@ -479,7 +488,7 @@ export class Painter {
       u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
       u[8] = g.refraction; u[9] = g.blur; u[10] = g.tint; u[11] = g.rim;
       u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
-      u[16] = dpr; u[17] = g.radius; u[18] = g.brighten;
+      u[16] = dpr; u[17] = g.radius; u[18] = g.brighten; u[19] = g.specular;
       this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
     });
 
