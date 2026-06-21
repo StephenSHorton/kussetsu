@@ -296,14 +296,23 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   }
 
   let rafId = 0;
-  function loop() {
+  let timerId = 0;
+  const renderIfDirty = () => {
     if (container.dirty) {
       container.dirty = false;
       renderFrame();
     }
-    rafId = requestAnimationFrame(loop);
-  }
-  rafId = requestAnimationFrame(loop);
+  };
+  const rafLoop = () => { renderIfDirty(); rafId = requestAnimationFrame(rafLoop); };
+  // Fallback loop: requestAnimationFrame is throttled (and paused for background tabs) when
+  // the window isn't OS-focused, which would freeze the canvas even though DOM input + React
+  // state still update — so a click would change state but never repaint. A setTimeout loop
+  // keeps dirty frames flushing (~5fps unfocused; the browser clamps it to ~1fps in a true
+  // background tab) so interactions always repaint. rAF still drives smooth 60fps animation
+  // when focused; renderIfDirty() no-ops when nothing changed, so the timer is nearly free.
+  const timerLoop = () => { renderIfDirty(); timerId = window.setTimeout(timerLoop, 200); };
+  rafId = requestAnimationFrame(rafLoop);
+  timerId = window.setTimeout(timerLoop, 200);
 
   const onResize = () => {
     container.dirty = true;
@@ -322,6 +331,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     },
     destroy() {
       cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
       removeEventListener("resize", onResize);
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
