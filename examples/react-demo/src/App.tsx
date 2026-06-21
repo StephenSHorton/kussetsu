@@ -31,7 +31,13 @@ function Stage({
   // the no-capture content, which would otherwise collapse the card to 0 and clip
   // the grass to nothing (clear glass would then refract black).
   return (
-    <section className="flex w-full flex-col gap-3">
+    // content-visibility: auto lets the browser skip rendering off-screen stages
+    // — essential on a ~55-card page so fast scrolling doesn't outrun paint. The
+    // captured GlassScene (below) is excluded, so html2canvas is unaffected.
+    <section
+      className="flex w-full flex-col gap-3"
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 360px" } as CSSProperties}
+    >
       <div>
         <h2 className="m-0 text-sm font-bold uppercase tracking-[0.14em] text-white">{title}</h2>
         <p className="mt-1 text-[0.82rem] text-[rgba(255,255,255,0.55)]">{description}</p>

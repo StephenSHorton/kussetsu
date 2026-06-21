@@ -282,7 +282,10 @@ export function createShaderSurface(
       draw(); // single static frame
       return;
     }
-    if (pauseWhenOffscreen && !visible) return;
+    if (pauseWhenOffscreen && !visible) {
+      draw(); // keep a fresh poster frame on the canvas while paused offscreen
+      return;
+    }
     looping = true;
     rafId = requestAnimationFrame(loop);
   }
@@ -493,6 +496,11 @@ export function createShaderSurface(
     active = true;
     startTime = performance.now();
     options.onReady?.();
+    // Paint one synchronous poster frame BEFORE starting the loop. A surface that
+    // is offscreen at init (e.g. far down a long page) gets paused by the
+    // IntersectionObserver before the loop's first rAF runs — without this it
+    // would stay a blank canvas and flash empty when scrolled into view.
+    draw();
     startLoop();
   }
 
