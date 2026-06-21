@@ -23,6 +23,11 @@ function elementChildren(node: ElementNode): ElementNode[] {
   return node.children.filter((c): c is ElementNode => c.kind === "element");
 }
 
+// Children that participate in flow layout (absolutely-positioned ones don't).
+function flowChildren(node: ElementNode): ElementNode[] {
+  return elementChildren(node).filter((c) => !c.props.style?.absolute);
+}
+
 function intrinsic(node: ElementNode): { w: number; h: number } {
   const s = node.props.style ?? {};
   if (node.type === "text") {
@@ -32,7 +37,7 @@ function intrinsic(node: ElementNode): { w: number; h: number } {
   const pad = s.padding ?? 0;
   const gap = s.gap ?? 0;
   const dir = s.direction ?? "column";
-  const kids = elementChildren(node);
+  const kids = flowChildren(node);
   const sizes = kids.map(intrinsic);
   let main = 0;
   let cross = 0;
@@ -72,7 +77,7 @@ function arrange(node: ElementNode): void {
   const innerW = node.w - pad * 2;
   const innerH = node.h - pad * 2;
 
-  const kids = elementChildren(node);
+  const kids = flowChildren(node);
   const sizes = kids.map(intrinsic);
 
   let totalMain = 0;
@@ -115,4 +120,18 @@ function arrange(node: ElementNode): void {
     }
     arrange(k);
   });
+
+  // Absolutely-positioned children: placed at their viewport x/y, sized by
+  // explicit width/height or intrinsic. (Used by the floating glass panel.)
+  for (const k of elementChildren(node)) {
+    const abs = k.props.style?.absolute;
+    if (!abs) continue;
+    const ks = k.props.style ?? {};
+    const it = intrinsic(k);
+    k.x = abs.x;
+    k.y = abs.y;
+    k.w = typeof ks.width === "number" ? ks.width : it.w;
+    k.h = typeof ks.height === "number" ? ks.height : it.h;
+    arrange(k);
+  }
 }

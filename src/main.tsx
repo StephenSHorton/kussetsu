@@ -3,7 +3,7 @@ import { createRoot } from "./hostConfig";
 import { Painter } from "./webgpu";
 import { layout } from "./layout";
 import { SemanticsOverlay } from "./a11y";
-import { collectRects, collectTexts, collectSemantics } from "./collect";
+import { collectRects, collectTexts, collectSemantics, collectGlass } from "./collect";
 import type { Container, ElementNode } from "./scene";
 import { App } from "./App";
 
@@ -43,7 +43,7 @@ async function boot() {
       if (root) {
         const { cssWidth, cssHeight } = painter.size();
         layout(root, cssWidth, cssHeight);
-        painter.frame(collectRects(root, focusedId), collectTexts(root));
+        painter.frame(collectRects(root, focusedId), collectTexts(root), collectGlass(root));
         overlay.syncFromScene(collectSemantics(root));
       }
     }

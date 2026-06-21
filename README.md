@@ -18,9 +18,13 @@ react-reconciler (custom HostConfig, mutation mode)   src/hostConfig.ts
    ▼
 layout (hand-rolled flexbox; swap in Yoga/Taffy)      src/layout.ts
    │  annotates x/y/w/h
-   ├─────────────► WebGPU painter                      src/webgpu.ts
-   │                 • instanced rounded-rect SDF pipeline (1 draw call)
-   │                 • text: 2D-canvas → texture → quad
+   ├─────────────► WebGPU painter (TWO passes)          src/webgpu.ts
+   │                 1) non-glass content → offscreen BACKDROP texture
+   │                    • instanced rounded-rect SDF pipeline (1 draw call)
+   │                    • text: 2D-canvas → texture → quad
+   │                 2) blit backdrop → canvas, then GLASS panels that
+   │                    SAMPLE the backdrop with refraction/frost/rim
+   │                    → glass refracts anything behind it, anywhere
    │                 • GPU-painted focus ring
    └─────────────► invisible semantics overlay         src/a11y.ts
                      • one transparent <button>/<h1>/<p> proxy per node
@@ -34,6 +38,10 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
 
 ## What this proves
 - React drives a non-DOM GPU renderer (the react-three-fiber trick, for 2D UI).
+- **Refractive glass that works *anywhere*.** Because we own the framebuffer, a
+  glass panel samples the real backdrop behind it and refracts it — over any
+  content, multiple elements at once, with no "capture a region" hack. This is
+  the exact effect the browser compositor forbade (the problem that started this).
 - Accessibility is **not** sacrificed: a screen reader reads a real `<h1>`,
   two `<p>`s, and a labeled `<button>`; keyboard focus works; the focus ring is
   GPU-painted (the bit Zed's GPUI deferred and Flutter Web shipped).

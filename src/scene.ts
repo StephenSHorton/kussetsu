@@ -12,12 +12,23 @@ export interface Style {
   height?: number;
   align?: "start" | "center" | "end"; // children, cross axis
   justify?: "start" | "center" | "end"; // children, main axis
+  absolute?: { x: number; y: number }; // take out of flow, place at viewport x/y
   background?: RGBA;
   radius?: number;
   // text-only
   color?: RGBA;
   fontSize?: number;
   fontWeight?: number;
+}
+
+// A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop),
+// not as a flat background rect.
+export interface GlassSpec {
+  refraction?: number; // default 0.09 — fraction of panel size the rim bends
+  frost?: number; // default 2 — backdrop blur, CSS px
+  tint?: number; // default 0.05 — mix toward tintColor
+  tintColor?: RGBA; // default cool white
+  rim?: number; // default 22 — rim band width, CSS px
 }
 
 export type Role = "button" | "heading" | "paragraph";
@@ -28,6 +39,7 @@ export interface NodeProps {
   ariaLabel?: string;
   level?: number; // heading level
   onActivate?: () => void;
+  glass?: GlassSpec; // present => painted as refractive glass
   children?: unknown;
 }
 
