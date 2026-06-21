@@ -8,6 +8,7 @@ import { App } from "./App";
 import { ChatApp } from "./ChatApp";
 import { CompatDemo } from "./compat";
 import { bootCommandMenu } from "./CommandMenuDemo";
+import { FxGallery } from "./FxGallery";
 import { runStress } from "./stress";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
@@ -47,6 +48,8 @@ if (params.has("stress")) {
   boot(CompatDemo, { camera: false });
 } else if (params.has("menu")) {
   bootCommandMenu(canvas).catch(showError);
+} else if (params.has("fx")) {
+  boot(FxGallery, { camera: false });
 } else {
   boot(ChatApp, { camera: false });
 }

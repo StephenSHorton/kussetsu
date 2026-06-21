@@ -2,7 +2,7 @@
 // pan/zoom CAMERA (world -> screen), per-region SCROLL offsets, and CLIP rects.
 // Pre-order = parents before children (paint order) and reading order (AT).
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene";
-import type { ClipRect, GlassPanel, Rect, TextItem } from "./webgpu";
+import type { ClipRect, GlassPanel, MaterialPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { caretRect, measureWidth, selectionRects } from "./text";
 import { glassTuning } from "./glassTuning";
@@ -48,10 +48,10 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
     if (focusedId != null && n.id === focusedId) {
       out.push({ x: x - 4, y: y - 4, w: w + 8, h: h + 8, radius: ((s.radius ?? 0) + 4) * cam.scale, color: FOCUS_RING, clip });
     }
-    if (s.background && !n.props.glass) {
+    if (s.background && !n.props.glass && !n.props.material) {
       out.push({ x, y, w, h, radius: (s.radius ?? 0) * cam.scale, color: s.background, clip });
     }
-    if (n.props.glass) return; // glass children render in the FOREGROUND pass, not the backdrop
+    if (n.props.glass || n.props.material) return; // their children render in the FOREGROUND pass
     let childClip = clip;
     let childSy = sy;
     if (s.overflow) {
@@ -84,7 +84,7 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
         if (str) out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy) * cam.scale + cam.ty, text: str, size, weight, color, clip });
       }
     }
-    if (n.props.glass) return; // glass children render in the FOREGROUND pass
+    if (n.props.glass || n.props.material) return; // their children render in the FOREGROUND pass
     let childClip = clip;
     let childSy = sy;
     if (s.overflow) {
@@ -122,14 +122,38 @@ export function collectForeground(root: ElementNode, cam: Camera): { rects: Rect
     for (const c of n.children) if (c.kind === "element") emit(c);
   };
   const find = (n: ElementNode) => {
-    if (n.props.glass) {
+    if (n.props.glass || n.props.material) {
       for (const c of n.children) if (c.kind === "element") emit(c);
-      return; // nested glass not handled — fine for now
+      return; // nested glass/material not handled — fine for now
     }
     for (const c of n.children) if (c.kind === "element") find(c);
   };
   find(root);
   return { rects, texts };
+}
+
+/** Custom-shader fill nodes (props.material) → flat panel list (camera-applied). */
+export function collectMaterials(root: ElementNode, cam: Camera): MaterialPanel[] {
+  const out: MaterialPanel[] = [];
+  const walk = (n: ElementNode) => {
+    const m = n.props.material;
+    if (m) {
+      out.push({
+        x: n.x * cam.scale + cam.tx,
+        y: n.y * cam.scale + cam.ty,
+        w: n.w * cam.scale,
+        h: n.h * cam.scale,
+        radius: (n.props.style?.radius ?? 0) * cam.scale,
+        shader: m.shader,
+        uniforms: m.uniforms ?? [],
+        backdrop: !!m.backdrop,
+        animated: !!m.animated,
+      });
+    }
+    for (const c of n.children) if (c.kind === "element") walk(c);
+  };
+  walk(root);
+  return out;
 }
 
 export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {

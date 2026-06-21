@@ -39,6 +39,19 @@ export interface GlassSpec {
   dispersion?: number; // default 0.025 — chromatic rim split (the colorful edge)
 }
 
+// A node with props.material is filled by a CUSTOM WGSL fragment shader — the "shader
+// material" primitive ("R3F materials, for 2D UI"). `shader` must define
+//   fn material(uv: vec2f, px: vec2f) -> vec4f   // uv 0..1 within the element; px = screen css px
+// and may read the standard uniforms `u` (u.res.w = time secs, u.res.xy = viewport, u.ptr.xy =
+// pointer css px, u.c0..u.c3 = your `uniforms`) and, if `backdrop` is set, sampleBackdrop(cssPx)
+// to read the live scene behind it (ripple/heat-haze/loupe/spotlight). See core/webgpu.ts.
+export interface MaterialSpec {
+  shader: string;
+  uniforms?: number[]; // up to 16 custom floats → u.c0..u.c3
+  backdrop?: boolean; // shader can sample the scene behind it
+  animated?: boolean; // request a continuous repaint loop
+}
+
 export type Role = "button" | "heading" | "paragraph";
 
 export interface NodeProps {
@@ -54,6 +67,7 @@ export interface NodeProps {
   value?: string; // editable field current value
   onChange?: (v: string) => void; // editable field change
   glass?: GlassSpec; // present => painted as refractive glass
+  material?: MaterialSpec; // present => filled by a custom WGSL fragment shader
   children?: unknown;
 }
 

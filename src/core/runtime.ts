@@ -14,6 +14,7 @@ import {
   collectTexts,
   collectSemantics,
   collectGlass,
+  collectMaterials,
   collectForeground,
   collectScrollRegions,
   collectSelection,
@@ -72,6 +73,8 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   let selecting = false;
   let contentBottom = 0; // lowest laid-out pixel — clamps page-scroll
   let viewportH = 0;
+  let lastPointer: [number, number] = [0, 0]; // css px, for shader materials
+  let materialsPresent = false;
 
   // Editable text: a transparent <input> overlaid on a field captures keyboard +
   // IME/composition (the browser does IME); the canvas renders the value + caret.
@@ -193,6 +196,8 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     }
   };
   const onPointerMove = (e: PointerEvent) => {
+    lastPointer = [e.offsetX, e.offsetY];
+    if (materialsPresent) container.dirty = true; // pointer-reactive shaders repaint
     if (selecting && selection) {
       const r = selectables.find((s) => s.id === selection!.nodeId);
       if (r) {
@@ -282,8 +287,12 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
         if (caret) fg.rects.push(caret); // caret on top (composer input sits on glass)
       }
     }
-    painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera), fg);
+    const materials = collectMaterials(root, camera);
+    materialsPresent = materials.length > 0;
+    painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera), fg, materials, { time: performance.now() / 1000, pointer: lastPointer });
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
+    // animated materials drive a continuous repaint loop
+    if (materials.some((m) => m.animated)) container.dirty = true;
   }
 
   let rafId = 0;

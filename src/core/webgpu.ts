@@ -43,6 +43,20 @@ export interface GlassPanel {
   dispersion: number; // chromatic split at the rim (0 = none) — the colorful edge
 }
 
+// A node filled by a CUSTOM WGSL fragment shader (props.material). The shader source
+// defines `fn material(uv, px) -> vec4f` and is wrapped in MATERIAL_HEAD/TAIL below.
+export interface MaterialPanel {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  radius: number;
+  shader: string;
+  uniforms: number[]; // up to 16 floats → u.c0..u.c3
+  backdrop: boolean;
+  animated: boolean;
+}
+
 // Glyph atlas: instanced per-glyph quads sampling a packed alpha atlas, tinted by
 // a per-instance color. Crisp + reuses each glyph once (vs a texture per string).
 const GLYPH_WGSL = /* wgsl */ `
@@ -243,6 +257,47 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
 }
 `;
 
+// Shader-material template. The author shader is injected between HEAD and TAIL and must
+// define `fn material(uv: vec2f, px: vec2f) -> vec4f` (uv 0..1 in the element; px = screen
+// css px). It can read `u` (u.res.w=time, u.res.xy=viewport, u.ptr.xy=pointer, u.ptr.z=radius,
+// u.c0..u.c3=custom uniforms, u.rect=element rect) and use sampleBackdrop()/noise/fbm helpers.
+const MATERIAL_HEAD = /* wgsl */ `
+struct MU { rect: vec4f, res: vec4f, ptr: vec4f, c0: vec4f, c1: vec4f, c2: vec4f, c3: vec4f };
+@group(0) @binding(0) var<uniform> u: MU;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var backdrop: texture_2d<f32>;
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) px: vec2f };
+const QUAD = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
+  let q = QUAD[vi];
+  let p = u.rect.xy + q * u.rect.zw;
+  let ndc = vec2f(p.x / u.res.x * 2.0 - 1.0, -(p.y / u.res.y * 2.0 - 1.0));
+  var o: VSOut; o.pos = vec4f(ndc, 0.0, 1.0); o.uv = q; o.px = p; return o;
+}
+fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); return length(max(q,vec2f(0.0)))+min(max(q.x,q.y),0.0)-r; }
+fn sampleBackdrop(cssPx: vec2f) -> vec4f { return textureSampleLevel(backdrop, samp, cssPx / u.res.xy, 0.0); }
+fn hash21(p0: vec2f) -> f32 { let p = fract(p0 * vec2f(123.34, 345.45)); let q = p + dot(p, p + 34.345); return fract(q.x * q.y); }
+fn noise2(p: vec2f) -> f32 {
+  let i = floor(p); let f = fract(p); let w = f*f*(3.0-2.0*f);
+  return mix(mix(hash21(i), hash21(i+vec2f(1,0)), w.x), mix(hash21(i+vec2f(0,1)), hash21(i+vec2f(1,1)), w.x), w.y);
+}
+fn fbm(p0: vec2f) -> f32 { var p=p0; var a=0.5; var v=0.0; for (var i=0; i<5; i=i+1) { v=v+a*noise2(p); p=p*2.02; a=a*0.5; } return v; }
+fn hsv2rgb(c: vec3f) -> vec3f { let p = abs(fract(c.xxx + vec3f(0.0,2.0/3.0,1.0/3.0))*6.0 - 3.0); return c.z * mix(vec3f(1.0), clamp(p-1.0,vec3f(0.0),vec3f(1.0)), c.y); }
+`;
+const MATERIAL_TAIL = /* wgsl */ `
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  let half = u.rect.zw * 0.5;
+  let local = (in.uv - 0.5) * u.rect.zw;
+  let radius = min(u.ptr.z, min(half.x, half.y));
+  let d = sdRoundBox(local, half, radius);
+  let aa = max(fwidth(d), 0.0001);
+  let shape = 1.0 - smoothstep(-aa, aa, d);
+  let c = material(in.uv, in.px);
+  let a = clamp(c.a, 0.0, 1.0) * shape;
+  return vec4f(c.rgb * a, a);
+}
+`;
+
 // [x,y,w,h][radius,_,_,_][r,g,b,a][clipX,clipY,clipW,clipH]
 export const FLOATS_PER_RECT = 16;
 const RECT_STRIDE = FLOATS_PER_RECT * 4;
@@ -313,6 +368,14 @@ export class Painter {
   private glyphScratch = new Float32Array(0);
   private pendingBuffers: GPUBuffer[] = []; // transient per-pass buffers, freed after submit
 
+  // Shader materials: one pipeline cached per unique shader source; pooled uniform buffers.
+  // An EXPLICIT bind-group layout (not "auto") so every material pipeline keeps all three
+  // bindings even when a shader doesn't sample the backdrop (auto-layout would strip them).
+  private materialPipelines = new Map<string, GPURenderPipeline>();
+  private materialBuffers: GPUBuffer[] = [];
+  private materialBGL!: GPUBindGroupLayout;
+  private materialPL!: GPUPipelineLayout;
+
   private constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
   }
@@ -324,6 +387,7 @@ export class Painter {
     const p = new Painter(canvas);
     p.device = await adapter.requestDevice();
     p.device.lost.then((info) => console.error("WebGPU device lost:", info.reason, info.message));
+    p.device.addEventListener("uncapturederror", (e) => console.error("[webgpu uncaptured]", (e as GPUUncapturedErrorEvent).error.message));
     p.context = canvas.getContext("webgpu") as GPUCanvasContext;
     p.format = navigator.gpu.getPreferredCanvasFormat();
     p.context.configure({ device: p.device, format: p.format, alphaMode: "premultiplied" });
@@ -379,6 +443,16 @@ export class Painter {
       entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }],
     });
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+
+    // Fixed layout for all shader materials (uniform + sampler + backdrop texture).
+    this.materialBGL = device.createBindGroupLayout({
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
+        { binding: 1, visibility: GPUShaderStage.FRAGMENT, sampler: {} },
+        { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      ],
+    });
+    this.materialPL = device.createPipelineLayout({ bindGroupLayouts: [this.materialBGL] });
 
     // --- Gap B: glyph atlas pipeline + texture ---
     const glyphModule = device.createShaderModule({ code: GLYPH_WGSL });
@@ -604,7 +678,49 @@ export class Painter {
     return buf;
   }
 
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }) {
+  private getMaterialPipeline(shader: string): GPURenderPipeline {
+    let p = this.materialPipelines.get(shader);
+    if (p) return p;
+    const module = this.device.createShaderModule({ code: MATERIAL_HEAD + shader + MATERIAL_TAIL });
+    p = this.device.createRenderPipeline({
+      layout: this.materialPL,
+      vertex: { module, entryPoint: "vs" },
+      fragment: { module, entryPoint: "fs", targets: [{ format: this.format, blend: PREMUL_BLEND }] },
+      primitive: { topology: "triangle-list" },
+    });
+    this.materialPipelines.set(shader, p);
+    return p;
+  }
+
+  // Draw custom-shader material quads onto the canvas (after glass, before foreground),
+  // each with standard uniforms (rect, viewport, dpr, time, pointer) + the backdrop texture.
+  private drawMaterials(encoder: GPUCommandEncoder, materials: MaterialPanel[], cssW: number, cssH: number, dpr: number, time: number, pointer: [number, number]) {
+    while (this.materialBuffers.length < materials.length) {
+      this.materialBuffers.push(this.device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+    }
+    const view = this.context.getCurrentTexture().createView();
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view, loadOp: "load", storeOp: "store" }] });
+    materials.forEach((m, i) => {
+      const buf = this.materialBuffers[i];
+      const a = new Float32Array(32);
+      a[0] = m.x; a[1] = m.y; a[2] = m.w; a[3] = m.h;
+      a[4] = cssW; a[5] = cssH; a[6] = dpr; a[7] = time;
+      a[8] = pointer[0]; a[9] = pointer[1]; a[10] = m.radius; a[11] = 0;
+      for (let k = 0; k < 16; k++) a[12 + k] = m.uniforms[k] ?? 0;
+      this.device.queue.writeBuffer(buf, 0, a);
+      const pipeline = this.getMaterialPipeline(m.shader);
+      const bg = this.device.createBindGroup({
+        layout: this.materialBGL,
+        entries: [{ binding: 0, resource: { buffer: buf } }, { binding: 1, resource: this.sampler }, { binding: 2, resource: this.backdropView! }],
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, bg);
+      pass.draw(6);
+    });
+    pass.end();
+  }
+
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: { time: number; pointer: [number, number] }) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -633,6 +749,11 @@ export class Painter {
 
     // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass).
     this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
+
+    // PASS 2.5 — custom shader materials onto the canvas (can sample the backdrop).
+    if (materials && materials.length) {
+      this.drawMaterials(encoder, materials, cssWidth, cssHeight, dpr, info?.time ?? 0, info?.pointer ?? [0, 0]);
+    }
 
     // PASS 3 — foreground: a glass node's children, drawn ON the glass (crisp, not
     // refracted by it). getCurrentTexture() returns the same canvas texture as the
