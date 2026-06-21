@@ -117,6 +117,12 @@ fn paint(uv: vec2f) -> vec4f {
   col.r = mix(col.r, textureSample(backdrop, backdrop_smp, refrUV + n * ca).r, caEdge);
   col.b = mix(col.b, textureSample(backdrop, backdrop_smp, refrUV - n * ca).b, caEdge);
 
+  // Where the panel samples OUTSIDE the captured backdrop (a portaled overlay
+  // floating past its scene's texture), fade only the refracted BACKDROP to dark
+  // — the glass material below (tint, rim, sheen, specular) is still applied, so
+  // it reads as a dark pane of glass, not the flat white/black block it was.
+  col = col * bm;
+
   // Optional color tint + a touch of brightening.
   col = mix(col, u.color, u.tintAmount);
   col *= 1.04;
@@ -133,9 +139,9 @@ fn paint(uv: vec2f) -> vec4f {
   col += vec3f(1.0) * sheen * 0.05 * edge * u.specular;
   col += vec3f(1.0) * glint * 0.14 * u.specular;
 
-  // Out of bounds: fade the (bad, smeared-edge) color to near-black but keep a
-  // floor of opacity so the panel stays a READABLE dark-translucent glass rather
-  // than vanishing — a popover floating past its backdrop should dim, not blank.
-  return vec4f(col * bm, mix(0.6, 1.0, bm));
+  // Slight translucency out of bounds so it reads as glass over the page; the
+  // rim/sheen highlights (added above, NOT masked) keep the glassy edge.
+  let a = mix(0.9, 1.0, bm);
+  return vec4f(col * a, a);
 }
 `;
