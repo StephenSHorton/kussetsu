@@ -146,7 +146,7 @@ export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {
         h: n.h * cam.scale,
         radius: (n.props.style?.radius ?? 22) * cam.scale,
         refraction: t ? t.refraction : (g.refraction ?? 0.09),
-        frost: (t ? t.frost : (g.frost ?? 2)) * cam.scale,
+        blur: (t ? t.blur : (g.blur ?? 2)) * cam.scale,
         tint: t ? t.tint : (g.tint ?? 0.05),
         tintColor: t ? t.tintColor : (g.tintColor ?? GLASS_TINT),
         rim: (t ? t.rim : (g.rim ?? 22)) * cam.scale,

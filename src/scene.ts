@@ -31,7 +31,7 @@ export interface Style {
 // not as a flat background rect.
 export interface GlassSpec {
   refraction?: number; // default 0.09 — fraction of panel size the rim bends
-  frost?: number; // default 2 — backdrop blur, CSS px
+  blur?: number; // default 2 — backdrop blur radius, CSS px
   tint?: number; // default 0.05 — mix toward tintColor
   tintColor?: RGBA; // default cool white
   rim?: number; // default 22 — rim band width, CSS px

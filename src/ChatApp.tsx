@@ -13,7 +13,7 @@ const MUTED: RGBA = [0.6, 0.65, 0.78, 1];
 const ACCENT: RGBA = [0.36, 0.46, 0.97, 1];
 const THEM: RGBA = [0.17, 0.19, 0.29, 1];
 const ROW_ACTIVE: RGBA = [0.14, 0.17, 0.29, 1];
-const GLASS = { refraction: 0.1, frost: 2.5, tint: 0.05, rim: 24 } as const;
+const GLASS = { refraction: 0.1, blur: 2.5, tint: 0.05, rim: 24 } as const;
 const SIDEBAR_W = 300;
 const HEADER_H = 64;
 const COMPOSER_H = 76;
@@ -41,7 +41,7 @@ const INITIAL: Conv[] = [
       { from: "me", text: "Yes — every pixel is painted on the GPU. The DOM only carries accessibility and input now." },
       { from: "them", text: "Even this text?" },
       { from: "me", text: "Even this text. It's drawn from a glyph atlas, and you can select it — try dragging across this message." },
-      { from: "them", text: "And the frosted bars at the top and bottom?" },
+      { from: "them", text: "And the glass bars at the top and bottom?" },
       { from: "me", text: "Real refractive glass. Scroll the thread and watch them bend the messages underneath." },
     ],
   },

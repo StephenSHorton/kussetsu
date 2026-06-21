@@ -71,7 +71,7 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
   };
   header.addEventListener("click", () => setOpen(!open));
 
-  const addSlider = (label: string, key: "refraction" | "frost" | "tint" | "rim" | "brighten", min: number, max: number, step: number) => {
+  const addSlider = (label: string, key: "refraction" | "blur" | "tint" | "rim" | "brighten", min: number, max: number, step: number) => {
     const row = document.createElement("div");
     const top = document.createElement("div");
     Object.assign(top.style, { display: "flex", justifyContent: "space-between", marginBottom: "3px" } as Partial<CSSStyleDeclaration>);
@@ -98,7 +98,7 @@ function buildGlassPanel(onRender: () => void): HTMLElement {
     body.appendChild(row);
   };
   addSlider("Refraction", "refraction", 0, 0.4, 0.005);
-  addSlider("Frost (blur)", "frost", 0, 16, 0.5);
+  addSlider("Blur", "blur", 0, 16, 0.5);
   addSlider("Tint", "tint", 0, 0.5, 0.01);
   addSlider("Rim width", "rim", 0, 80, 1);
   addSlider("Brighten", "brighten", 0.8, 1.4, 0.01);
@@ -383,6 +383,8 @@ async function boot(Component: ComponentType, opts: { camera: boolean; pageScrol
       container.dirty = true;
     }),
   );
+  // Debug hook: tweak glass params from the console (e.g. __glass.params.blur = 10).
+  (window as unknown as { __glass?: typeof glassTuning }).__glass = glassTuning;
 
   createRoot(container).render(createElement(Component));
   // eslint-disable-next-line no-console

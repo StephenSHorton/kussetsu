@@ -6,7 +6,7 @@ import type { RGBA } from "./scene";
 
 export interface GlassParams {
   refraction: number; // rim bend, fraction of panel size
-  frost: number; // backdrop blur radius, CSS px
+  blur: number; // backdrop blur radius, CSS px (CSS blur()-style Gaussian)
   tint: number; // mix toward tintColor, 0..1
   rim: number; // rim band width, CSS px
   brighten: number; // overall lightening (1 = none)
@@ -15,5 +15,5 @@ export interface GlassParams {
 
 export const glassTuning: { enabled: boolean; params: GlassParams } = {
   enabled: false,
-  params: { refraction: 0.1, frost: 2.5, tint: 0.05, rim: 24, brighten: 1.03, tintColor: [0.82, 0.87, 1, 1] },
+  params: { refraction: 0.1, blur: 2.5, tint: 0.05, rim: 24, brighten: 1.03, tintColor: [0.82, 0.87, 1, 1] },
 };

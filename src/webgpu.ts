@@ -1,7 +1,7 @@
 // WebGPU 2D painter. TWO passes now:
 //   1) render all non-glass content (rects + text) to an offscreen BACKDROP texture
 //   2) blit the backdrop to the canvas, then draw glass panels that SAMPLE the
-//      backdrop with refraction/frost/rim — i.e. glass refracts whatever is behind
+//      backdrop with refraction/blur/rim — i.e. glass refracts whatever is behind
 //      it, anywhere on screen, because we own the whole framebuffer.
 import type { RGBA } from "./scene";
 
@@ -34,7 +34,7 @@ export interface GlassPanel {
   h: number;
   radius: number;
   refraction: number; // fraction of panel size the rim bends the backdrop
-  frost: number; // backdrop blur radius, CSS px
+  blur: number; // backdrop blur radius, CSS px
   tint: number; // 0..1 mix toward tintColor
   tintColor: RGBA;
   rim: number; // rim band width, CSS px
@@ -164,7 +164,7 @@ const GLASS_WGSL = /* wgsl */ `
 struct GU {
   rect: vec4f,   // x,y,w,h  CSS px
   fbvp: vec4f,   // fb.x, fb.y (physical px),  vp.x, vp.y (CSS px)
-  params: vec4f, // refraction, frost, tint, rim
+  params: vec4f, // refraction, blur, tint, rim
   tint: vec4f,   // rgba
   misc: vec4f,   // dpr, radius, brighten, _
 };
@@ -200,7 +200,7 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
   var n = vec2f(nx, ny); n = n / max(length(n), 1e-4);
 
   let refraction = u.params.x;
-  let frost = u.params.y;
+  let blurAmt = u.params.y;
   let tintAmt = u.params.z;
   let rim = u.params.w;
   let edge = smoothstep(rim, 0.0, -d); // 1 at rim, 0 in interior
@@ -209,25 +209,26 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
   let offCss = n * edge * refraction * (half.x + half.y);
   let suv = screenUV + offCss * dpr / fb;
 
-  var col = textureSample(backdrop, samp, suv).rgb;
-  if (frost > 0.001) {
-    // 13-tap weighted disc (center + inner ring of 8 + outer ring of 4) — much
-    // smoother than the old 7-tap cross, so frost reads as glass not "beer goggles".
-    let r = frost * dpr / fb;
-    var acc = col * 3.0;
-    acc += textureSample(backdrop, samp, suv + vec2f( r.x, 0.0)).rgb * 1.5;
-    acc += textureSample(backdrop, samp, suv + vec2f(-r.x, 0.0)).rgb * 1.5;
-    acc += textureSample(backdrop, samp, suv + vec2f(0.0,  r.y)).rgb * 1.5;
-    acc += textureSample(backdrop, samp, suv + vec2f(0.0, -r.y)).rgb * 1.5;
-    acc += textureSample(backdrop, samp, suv + vec2f( r.x,  r.y)*0.7).rgb * 1.2;
-    acc += textureSample(backdrop, samp, suv + vec2f(-r.x,  r.y)*0.7).rgb * 1.2;
-    acc += textureSample(backdrop, samp, suv + vec2f( r.x, -r.y)*0.7).rgb * 1.2;
-    acc += textureSample(backdrop, samp, suv + vec2f(-r.x, -r.y)*0.7).rgb * 1.2;
-    acc += textureSample(backdrop, samp, suv + vec2f( r.x, 0.0)*1.8).rgb * 0.6;
-    acc += textureSample(backdrop, samp, suv + vec2f(-r.x, 0.0)*1.8).rgb * 0.6;
-    acc += textureSample(backdrop, samp, suv + vec2f(0.0,  r.y)*1.8).rgb * 0.6;
-    acc += textureSample(backdrop, samp, suv + vec2f(0.0, -r.y)*1.8).rgb * 0.6;
-    col = acc / 16.2;
+  var col: vec3f;
+  if (blurAmt > 0.001) {
+    // Dense 9x9 Gaussian (81 taps) over +/- radius — uniformly fuzzy like CSS
+    // blur(), instead of the discrete "ghost copies" a sparse kernel produces.
+    // textureSampleLevel keeps sampling valid inside the loop (no derivatives).
+    let R = blurAmt * dpr / fb; // blur radius in UV (per-axis, aspect-correct)
+    var sum = vec3f(0.0);
+    var wsum = 0.0;
+    for (var j = -4; j <= 4; j = j + 1) {
+      for (var i = -4; i <= 4; i = i + 1) {
+        let fi = f32(i) / 4.0;
+        let fj = f32(j) / 4.0;
+        let w = exp(-2.5 * (fi * fi + fj * fj));
+        sum = sum + textureSampleLevel(backdrop, samp, suv + vec2f(fi, fj) * R, 0.0).rgb * w;
+        wsum = wsum + w;
+      }
+    }
+    col = sum / wsum;
+  } else {
+    col = textureSampleLevel(backdrop, samp, suv, 0.0).rgb;
   }
 
   col = mix(col, u.tint.rgb, tintAmt);
@@ -476,7 +477,7 @@ export class Painter {
       const u = new Float32Array(20);
       u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
       u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
-      u[8] = g.refraction; u[9] = g.frost; u[10] = g.tint; u[11] = g.rim;
+      u[8] = g.refraction; u[9] = g.blur; u[10] = g.tint; u[11] = g.rim;
       u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
       u[16] = dpr; u[17] = g.radius; u[18] = g.brighten;
       this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
