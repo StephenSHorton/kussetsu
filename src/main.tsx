@@ -2,7 +2,8 @@ import { createElement } from "react";
 import { createRoot } from "./hostConfig";
 import { Painter } from "./webgpu";
 import { SemanticsOverlay } from "./a11y";
-import { collectRects, collectTexts, collectSemantics, collectGlass, collectScrollRegions, type ScrollRegion } from "./collect";
+import { collectRects, collectTexts, collectSemantics, collectGlass, collectScrollRegions, collectSelection, collectSelectable, type ScrollRegion, type Selection, type SelectableRegion } from "./collect";
+import { hitTest } from "./text";
 import type { Camera, Container, ElementNode } from "./scene";
 import { App } from "./App";
 import { runStress } from "./stress";
@@ -33,6 +34,9 @@ async function boot() {
   const camera: Camera = { tx: 0, ty: 0, scale: 1 };
   const scrollY = new Map<number, number>(); // node.id -> scroll offset (world px)
   let scrollRegions: ScrollRegion[] = []; // refreshed each frame for wheel routing
+  let selection: Selection | null = null;
+  let selectables: SelectableRegion[] = [];
+  let selecting = false;
   const overlay = new SemanticsOverlay(
     a11yHost,
     {
@@ -48,13 +52,36 @@ async function boot() {
   let panning = false;
   let panX = 0;
   let panY = 0;
+  const caretAt = (r: SelectableRegion, e: PointerEvent) =>
+    hitTest(r.node.wrapped!.result, (e.offsetX - r.x) / r.scale, (e.offsetY - r.y) / r.scale);
+
   canvas.addEventListener("pointerdown", (e) => {
+    // Clicking selectable text starts a selection (takes precedence over pan).
+    for (let i = selectables.length - 1; i >= 0; i--) {
+      const r = selectables[i];
+      if (e.offsetX >= r.x && e.offsetX <= r.x + r.w && e.offsetY >= r.y && e.offsetY <= r.y + r.h) {
+        const off = caretAt(r, e);
+        selection = { nodeId: r.id, anchor: off, focus: off };
+        selecting = true;
+        canvas.setPointerCapture(e.pointerId);
+        container.dirty = true;
+        return;
+      }
+    }
     panning = true;
     panX = e.clientX;
     panY = e.clientY;
     canvas.setPointerCapture(e.pointerId);
   });
   canvas.addEventListener("pointermove", (e) => {
+    if (selecting && selection) {
+      const r = selectables.find((s) => s.id === selection!.nodeId);
+      if (r) {
+        selection = { ...selection, focus: caretAt(r, e) };
+        container.dirty = true;
+      }
+      return;
+    }
     if (!panning) return;
     camera.tx += e.clientX - panX;
     camera.ty += e.clientY - panY;
@@ -64,6 +91,7 @@ async function boot() {
   });
   const endPan = (e: PointerEvent) => {
     panning = false;
+    selecting = false;
     try {
       canvas.releasePointerCapture(e.pointerId);
     } catch {
@@ -107,7 +135,9 @@ async function boot() {
     const { cssWidth, cssHeight } = painter.size();
     layoutWithYoga(root, cssWidth, cssHeight);
     scrollRegions = collectScrollRegions(root, camera, scrollY);
-    painter.frame(collectRects(root, focusedId, camera, scrollY), collectTexts(root, camera, scrollY), collectGlass(root, camera));
+    selectables = collectSelectable(root, camera);
+    const rects = [...collectRects(root, focusedId, camera, scrollY), ...collectSelection(root, selection, camera)];
+    painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera));
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
   }
   function loop() {

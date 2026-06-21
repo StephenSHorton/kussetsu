@@ -4,9 +4,27 @@
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene";
 import type { ClipRect, GlassPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
+import { caretRect, selectionRects } from "./text";
 
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];
 const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
+const SELECTION_COLOR: RGBA = [0.3, 0.46, 0.96, 0.4];
+const CARET_COLOR: RGBA = [0.96, 0.98, 1, 1];
+
+export interface Selection {
+  nodeId: number;
+  anchor: number;
+  focus: number;
+}
+export interface SelectableRegion {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  node: ElementNode;
+  scale: number;
+}
 
 export type ScrollMap = Map<number, number>; // node.id -> scrollY (world px)
 
@@ -50,17 +68,18 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
   const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
     const s = n.props.style ?? {};
     if (n.type === "text") {
-      const str = textOf(n);
-      if (str) {
-        out.push({
-          x: n.x * cam.scale + cam.tx,
-          y: (n.y - sy) * cam.scale + cam.ty,
-          text: str,
-          size: (s.fontSize ?? 16) * cam.scale,
-          weight: s.fontWeight ?? 400,
-          color: s.color ?? [1, 1, 1, 1],
-          clip,
-        });
+      const size = (s.fontSize ?? 16) * cam.scale;
+      const weight = s.fontWeight ?? 400;
+      const color = s.color ?? ([1, 1, 1, 1] as RGBA);
+      if (n.wrapped) {
+        // wrapped paragraph: one TextItem per visual line
+        for (const L of n.wrapped.result.lines) {
+          if (!L.text) continue;
+          out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color, clip });
+        }
+      } else {
+        const str = textOf(n);
+        if (str) out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy) * cam.scale + cam.ty, text: str, size, weight, color, clip });
       }
     }
     let childClip = clip;
@@ -145,6 +164,44 @@ export interface ScrollRegion {
   id: number;
   rect: ClipRect; // screen px
   maxScroll: number; // world px
+}
+
+/** Selection highlight bands + caret as screen rects (drawn behind/with the text). */
+export function collectSelection(root: ElementNode, selection: Selection | null, cam: Camera): Rect[] {
+  if (!selection) return [];
+  let node: ElementNode | null = null;
+  const find = (n: ElementNode) => {
+    if (node) return;
+    if (n.id === selection.nodeId) {
+      node = n;
+      return;
+    }
+    for (const c of n.children) if (c.kind === "element") find(c);
+  };
+  find(root);
+  if (!node || !node.wrapped) return [];
+  const nd: ElementNode = node;
+  const out: Rect[] = [];
+  const s = cam.scale;
+  for (const r of selectionRects(nd.wrapped!.result, selection.anchor, selection.focus)) {
+    out.push({ x: (nd.x + r.x) * s + cam.tx, y: (nd.y + r.y) * s + cam.ty, w: r.w * s, h: r.h * s, radius: 2 * s, color: SELECTION_COLOR });
+  }
+  const c = caretRect(nd.wrapped!.result, selection.focus);
+  out.push({ x: (nd.x + c.x) * s + cam.tx, y: (nd.y + c.y) * s + cam.ty, w: Math.max(1.5, c.w * s), h: c.h * s, radius: 0, color: CARET_COLOR });
+  return out;
+}
+
+/** Selectable text regions (screen rects) for click->caret hit-testing. */
+export function collectSelectable(root: ElementNode, cam: Camera): SelectableRegion[] {
+  const out: SelectableRegion[] = [];
+  const walk = (n: ElementNode) => {
+    if (n.type === "text" && n.props.selectable && n.wrapped) {
+      out.push({ id: n.id, x: n.x * cam.scale + cam.tx, y: n.y * cam.scale + cam.ty, w: n.w * cam.scale, h: n.h * cam.scale, node: n, scale: cam.scale });
+    }
+    for (const c of n.children) if (c.kind === "element") walk(c);
+  };
+  walk(root);
+  return out;
 }
 
 /** Scroll containers + their screen rects + scroll range — for wheel routing. */

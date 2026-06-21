@@ -46,6 +46,7 @@ export interface NodeProps {
   onActivate?: () => void;
   draggable?: boolean;
   onDrag?: (worldDx: number, worldDy: number) => void; // delta in WORLD px
+  selectable?: boolean; // text node: wrap + click/drag to select
   glass?: GlassSpec; // present => painted as refractive glass
   children?: unknown;
 }
@@ -69,6 +70,8 @@ export interface ElementNode {
   y: number;
   w: number;
   h: number;
+  // text nodes: cached wrap result (set by the layout measure-func)
+  wrapped?: { width: number; result: import("./text").WrapResult };
 }
 
 export interface TextNode {

@@ -9,6 +9,7 @@ import Yoga, { Align, Direction, Edge, FlexDirection, Gutter, Justify, MeasureMo
 import type { Node as YogaNode } from "yoga-layout";
 import { type ElementNode, type Style, textOf } from "./scene";
 import { measureText } from "./layout";
+import { wrapText } from "./text";
 
 // Yoga calls the measure func 2-4x per text node per pass — memoize it (this, not
 // Yoga's C++ core, is the 60fps cliff).
@@ -61,13 +62,22 @@ function build(scene: ElementNode): YogaNode {
     const str = textOf(scene);
     const st = scene.props.style ?? {};
     yn.setMeasureFunc((availW, widthMode) => {
+      const constrained = (widthMode === MeasureMode.AtMost || widthMode === MeasureMode.Exactly) && Number.isFinite(availW) && availW > 0;
+      if (constrained) {
+        const single = measure(str, st);
+        if (single.w <= availW && !str.includes("\n")) {
+          scene.wrapped = undefined; // fits on one line
+          return { width: widthMode === MeasureMode.Exactly ? availW : single.w, height: single.h };
+        }
+        // Word-wrap (Intl.Segmenter) — fills what was the WRAPPING SLOT. The result
+        // is cached on the node for rendering + selection geometry.
+        const wrap = wrapText(str, availW, st);
+        scene.wrapped = { width: availW, result: wrap };
+        return { width: widthMode === MeasureMode.Exactly ? availW : Math.min(availW, wrap.width), height: wrap.height };
+      }
+      scene.wrapped = undefined;
       const m = measure(str, st);
-      let w = m.w;
-      if (widthMode === MeasureMode.Exactly) w = availW;
-      else if (widthMode === MeasureMode.AtMost) w = Math.min(m.w, availW);
-      // --- WRAPPING SLOT --- real line-breaking (Parley) returns a multi-line
-      // block here when widthMode is AtMost/Exactly; single-line for now.
-      return { width: w, height: m.h };
+      return { width: m.w, height: m.h };
     });
     return yn;
   }

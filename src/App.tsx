@@ -56,6 +56,13 @@ export function App() {
         ))}
       </view>
 
+      {/* Selectable + wrapping text (A): click and drag across it to select. */}
+      <view style={{ width: 440, padding: 18, radius: 14, background: [0.08, 0.1, 0.16, 1] }}>
+        <text selectable role="paragraph" style={{ width: "stretch", fontSize: 16, fontWeight: 400, color: [0.82, 0.87, 0.97, 1] }}>
+          {"This paragraph is GPU-painted and wraps via Intl.Segmenter. Click and drag across it to select — the highlight and caret come from per-character positions measured on the fly. Real text, on a canvas we own."}
+        </text>
+      </view>
+
       {/* Scrolling + clipping: a fixed-height list. */}
       <view style={{ width: 380, height: 200, overflow: "scroll", padding: 12, gap: 8, radius: 14, background: [0.07, 0.09, 0.15, 1] }}>
         {Array.from({ length: 24 }, (_, i) => (

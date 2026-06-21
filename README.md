@@ -68,9 +68,16 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
 - **Draggable nodes — DONE.** The `?react` demo is now a little node editor —
   every node card is `draggable` (pointer + arrow-key drag via the overlay).
 
+- **Text — selection + wrapping (A) DONE.** Glyphs are still browser-shaped
+  (`fillText`), but `src/text.ts` adds the geometry a whole-string texture can't:
+  word-wrap via `Intl.Segmenter` (filling the layout measure-func) and per-character
+  x-positions via prefix `measureText` (correctly kerned). Selection is two integer
+  offsets; the `?react` paragraph is click-drag selectable with a real multi-line
+  highlight + caret. LTR only — bidi/complex-script carets are out of scope.
+
 ## What it deliberately does NOT (yet) solve
-Text shaping/IME/i18n, scrolling + clipping, glass-over-glass stacking, text
-selection, hit-testing for non-semantic regions, and a thousand edge cases.
+Bidi / complex-script (RTL, Arabic/Indic) text selection, a glyph atlas (whole-string
+textures still), in-canvas text editing/IME, and a thousand edge cases.
 Still a feasibility spike, not a framework.
 
 ## Stress demo (the validation artifact)
