@@ -59,6 +59,16 @@ export function App() {
         ))}
       </view>
 
+      {/* Scrolling + clipping: 24 rows of 40px overflow a 230px box; rows clip to
+          the container and the wheel scrolls them (hover the list and scroll). */}
+      <view style={{ width: 380, height: 230, overflow: "scroll", padding: 12, gap: 8, radius: 14, background: [0.07, 0.09, 0.15, 1] }}>
+        {Array.from({ length: 24 }, (_, i) => (
+          <view key={i} style={{ width: "stretch", height: 40, shrink: 0, direction: "row", align: "center", padding: 12, radius: 9, background: [0.14, 0.16, 0.25, 1] }}>
+            <text style={{ fontSize: 14, fontWeight: 600, color: [0.84, 0.89, 1, 1] }}>{`Row ${i + 1} — scroll me`}</text>
+          </view>
+        ))}
+      </view>
+
       {/* Draggable refractive glass panel — grab it and shove it over the graph. */}
       <view
         glass={{ refraction: 0.13, frost: 5, tint: 0.07, rim: 30 }}

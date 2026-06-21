@@ -57,6 +57,11 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
   scene tree each pass, measure-funcs on text leaves, free recursively. The
   `?react` demo shows real flex-wrap (which the toy couldn't do). `src/layout.ts`
   remains only for `measureText`.
+- **Scrolling + clipping — DONE.** `overflow: "scroll" | "hidden"` clips children
+  to the container via a **per-instance clip rect in the shaders** (discard outside,
+  keeping the single instanced draw); the collectors apply a scroll offset and
+  intersect nested clips; the wheel routes to a scroll region under the cursor
+  (else zoom). The `?react` demo has a fixed-height list that clips + scrolls.
 
 ## What it deliberately does NOT (yet) solve
 Text shaping/IME/i18n, scrolling + clipping, glass-over-glass stacking, text

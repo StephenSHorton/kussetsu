@@ -5,6 +5,8 @@
 //      it, anywhere on screen, because we own the whole framebuffer.
 import type { RGBA } from "./scene";
 
+export type ClipRect = [number, number, number, number]; // x,y,w,h screen px; w<=0 => no clip
+
 export interface Rect {
   x: number;
   y: number;
@@ -12,6 +14,7 @@ export interface Rect {
   h: number;
   radius: number;
   color: RGBA;
+  clip?: ClipRect;
 }
 
 export interface TextItem {
@@ -21,6 +24,7 @@ export interface TextItem {
   size: number;
   weight: number;
   color: RGBA;
+  clip?: ClipRect;
 }
 
 export interface GlassPanel {
@@ -47,44 +51,64 @@ const RECT_WGSL = /* wgsl */ `
 // static nodes upload once and pan/zoom only touches this uniform.
 struct VP { sizePad: vec4f, cam: vec4f };
 @group(0) @binding(0) var<uniform> vp: VP;
-struct VSOut { @builtin(position) pos: vec4f, @location(0) local: vec2f, @location(1) half: vec2f, @location(2) radius: f32, @location(3) color: vec4f };
+struct VSOut {
+  @builtin(position) pos: vec4f,
+  @location(0) local: vec2f, @location(1) half: vec2f, @location(2) radius: f32, @location(3) color: vec4f,
+  @location(4) screenPos: vec2f, @location(5) clip: vec4f,
+};
 const QUAD = array<vec2f, 6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
-@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) radius: f32, @location(2) color: vec4f) -> VSOut {
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) radius: f32, @location(2) color: vec4f, @location(3) clip: vec4f) -> VSOut {
   let q = QUAD[vi];
   let worldPx = rect.xy + q * rect.zw;
   let screenPx = worldPx * vp.cam.z + vp.cam.xy;
   let size = vp.sizePad.xy;
-  let clip = vec2f(screenPx.x/size.x*2.0-1.0, -(screenPx.y/size.y*2.0-1.0));
+  let ndc = vec2f(screenPx.x/size.x*2.0-1.0, -(screenPx.y/size.y*2.0-1.0));
   var o: VSOut;
-  o.pos = vec4f(clip,0,1); o.local = (q-0.5)*rect.zw; o.half = rect.zw*0.5;
+  o.pos = vec4f(ndc,0,1); o.local = (q-0.5)*rect.zw; o.half = rect.zw*0.5;
   o.radius = min(radius, min(o.half.x, o.half.y)); o.color = color;
+  o.screenPos = screenPx; o.clip = clip;
   return o;
 }
 fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); return length(max(q,vec2f(0.0)))+min(max(q.x,q.y),0.0)-r; }
+// Clip rect alpha (CSS px), ~1px AA. clip.z<=0 => no clip.
+fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
+  if (clip.z <= 0.0) { return 1.0; }
+  let x1 = clip.x + clip.z; let y1 = clip.y + clip.w;
+  let ax = smoothstep(clip.x - 0.5, clip.x + 0.5, p.x) * (1.0 - smoothstep(x1 - 0.5, x1 + 0.5, p.x));
+  let ay = smoothstep(clip.y - 0.5, clip.y + 0.5, p.y) * (1.0 - smoothstep(y1 - 0.5, y1 + 0.5, p.y));
+  return ax * ay;
+}
 @fragment fn fs(in: VSOut) -> @location(0) vec4f {
   let d = sdRoundBox(in.local, in.half, in.radius);
   let aa = fwidth(d);
-  let a = in.color.a * (1.0 - smoothstep(-aa, aa, d));
+  let a = in.color.a * (1.0 - smoothstep(-aa, aa, d)) * clipAlpha(in.screenPos, in.clip);
   return vec4f(in.color.rgb * a, a);
 }
 `;
 
 const TEXT_WGSL = /* wgsl */ `
 struct Viewport { size: vec2f };
-struct QuadRect { rect: vec4f };
+struct TU { rect: vec4f, clip: vec4f };
 @group(0) @binding(0) var<uniform> vp: Viewport;
-@group(0) @binding(1) var<uniform> qr: QuadRect;
+@group(0) @binding(1) var<uniform> tu: TU;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var tex: texture_2d<f32>;
-struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) screenPos: vec2f, @location(2) clip: vec4f };
 const Q = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
 @vertex fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
   let q = Q[vi];
-  let px = qr.rect.xy + q*qr.rect.zw;
-  let clip = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
-  var o: VSOut; o.pos = vec4f(clip,0,1); o.uv = q; return o;
+  let px = tu.rect.xy + q*tu.rect.zw;
+  let ndc = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
+  var o: VSOut; o.pos = vec4f(ndc,0,1); o.uv = q; o.screenPos = px; o.clip = tu.clip; return o;
 }
-@fragment fn fs(in: VSOut) -> @location(0) vec4f { return textureSample(tex, samp, in.uv); }
+fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
+  if (clip.z <= 0.0) { return 1.0; }
+  let x1 = clip.x + clip.z; let y1 = clip.y + clip.w;
+  let ax = smoothstep(clip.x - 0.5, clip.x + 0.5, p.x) * (1.0 - smoothstep(x1 - 0.5, x1 + 0.5, p.x));
+  let ay = smoothstep(clip.y - 0.5, clip.y + 0.5, p.y) * (1.0 - smoothstep(y1 - 0.5, y1 + 0.5, p.y));
+  return ax * ay;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f { return textureSample(tex, samp, in.uv) * clipAlpha(in.screenPos, in.clip); }
 `;
 
 // Fullscreen blit of the backdrop texture onto the canvas (replace).
@@ -179,7 +203,8 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
 }
 `;
 
-const FLOATS_PER_RECT = 12;
+// [x,y,w,h][radius,_,_,_][r,g,b,a][clipX,clipY,clipW,clipH]
+export const FLOATS_PER_RECT = 16;
 const RECT_STRIDE = FLOATS_PER_RECT * 4;
 
 function rgbaCss(c: RGBA): string {
@@ -247,9 +272,10 @@ export class Painter {
             arrayStride: RECT_STRIDE,
             stepMode: "instance",
             attributes: [
-              { shaderLocation: 0, offset: 0, format: "float32x4" },
-              { shaderLocation: 1, offset: 16, format: "float32" },
-              { shaderLocation: 2, offset: 32, format: "float32x4" },
+              { shaderLocation: 0, offset: 0, format: "float32x4" }, // rect
+              { shaderLocation: 1, offset: 16, format: "float32" }, // radius
+              { shaderLocation: 2, offset: 32, format: "float32x4" }, // color
+              { shaderLocation: 3, offset: 48, format: "float32x4" }, // clip
             ],
           },
         ],
@@ -376,6 +402,7 @@ export class Painter {
         data[o] = r.x; data[o + 1] = r.y; data[o + 2] = r.w; data[o + 3] = r.h;
         data[o + 4] = r.radius;
         data[o + 8] = r.color[0]; data[o + 9] = r.color[1]; data[o + 10] = r.color[2]; data[o + 11] = r.color[3];
+        if (r.clip) { data[o + 12] = r.clip[0]; data[o + 13] = r.clip[1]; data[o + 14] = r.clip[2]; data[o + 15] = r.clip[3]; }
       });
       this.device.queue.writeBuffer(instanceBuffer, 0, data);
     }
@@ -383,11 +410,12 @@ export class Painter {
     // text bind groups
     const textEntries = texts.map((t) => this.getText(t));
     while (this.textRectBuffers.length < texts.length) {
-      this.textRectBuffers.push(this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+      this.textRectBuffers.push(this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     }
     const textBindGroups: GPUBindGroup[] = texts.map((t, i) => {
       const e = textEntries[i];
-      this.device.queue.writeBuffer(this.textRectBuffers[i], 0, new Float32Array([t.x, t.y, e.cssW, e.cssH]));
+      const tc = t.clip;
+      this.device.queue.writeBuffer(this.textRectBuffers[i], 0, new Float32Array([t.x, t.y, e.cssW, e.cssH, tc ? tc[0] : 0, tc ? tc[1] : 0, tc ? tc[2] : 0, tc ? tc[3] : 0]));
       return this.device.createBindGroup({
         layout: this.textPipeline.getBindGroupLayout(0),
         entries: [
@@ -481,11 +509,12 @@ export class Painter {
 
     const textEntries = texts.map((t) => this.getText(t));
     while (this.textRectBuffers.length < texts.length) {
-      this.textRectBuffers.push(this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+      this.textRectBuffers.push(this.device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     }
     const textBindGroups = texts.map((t, i) => {
       const e = textEntries[i];
-      this.device.queue.writeBuffer(this.textRectBuffers[i], 0, new Float32Array([t.x, t.y, e.cssW, e.cssH]));
+      const tc = t.clip;
+      this.device.queue.writeBuffer(this.textRectBuffers[i], 0, new Float32Array([t.x, t.y, e.cssW, e.cssH, tc ? tc[0] : 0, tc ? tc[1] : 0, tc ? tc[2] : 0, tc ? tc[3] : 0]));
       return this.device.createBindGroup({
         layout: this.textPipeline.getBindGroupLayout(0),
         entries: [

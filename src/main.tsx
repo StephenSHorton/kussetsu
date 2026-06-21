@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { createRoot } from "./hostConfig";
 import { Painter } from "./webgpu";
 import { SemanticsOverlay } from "./a11y";
-import { collectRects, collectTexts, collectSemantics, collectGlass } from "./collect";
+import { collectRects, collectTexts, collectSemantics, collectGlass, collectScrollRegions, type ScrollRegion } from "./collect";
 import type { Camera, Container, ElementNode } from "./scene";
 import { App } from "./App";
 import { runStress } from "./stress";
@@ -31,6 +31,8 @@ async function boot() {
   }
 
   const camera: Camera = { tx: 0, ty: 0, scale: 1 };
+  const scrollY = new Map<number, number>(); // node.id -> scroll offset (world px)
+  let scrollRegions: ScrollRegion[] = []; // refreshed each frame for wheel routing
   const overlay = new SemanticsOverlay(
     a11yHost,
     {
@@ -71,11 +73,20 @@ async function boot() {
   canvas.addEventListener("pointerup", endPan);
   canvas.addEventListener("pointercancel", endPan);
 
-  // Zoom around the cursor.
+  // Wheel: scroll a region under the cursor if there is one, else zoom.
   canvas.addEventListener(
     "wheel",
     (e) => {
       e.preventDefault();
+      for (let i = scrollRegions.length - 1; i >= 0; i--) {
+        const r = scrollRegions[i];
+        if (e.offsetX >= r.rect[0] && e.offsetX <= r.rect[0] + r.rect[2] && e.offsetY >= r.rect[1] && e.offsetY <= r.rect[1] + r.rect[3]) {
+          const cur = scrollY.get(r.id) ?? 0;
+          scrollY.set(r.id, Math.min(r.maxScroll, Math.max(0, cur + e.deltaY / camera.scale)));
+          container.dirty = true;
+          return;
+        }
+      }
       const ns = Math.min(3, Math.max(0.35, camera.scale * Math.exp(-e.deltaY * 0.0015)));
       const wx = (e.offsetX - camera.tx) / camera.scale;
       const wy = (e.offsetY - camera.ty) / camera.scale;
@@ -90,20 +101,25 @@ async function boot() {
   const rootElement = (): ElementNode | null =>
     (container.children.find((c) => c.kind === "element") as ElementNode | undefined) ?? null;
 
+  function renderFrame() {
+    const root = rootElement();
+    if (!root) return;
+    const { cssWidth, cssHeight } = painter.size();
+    layoutWithYoga(root, cssWidth, cssHeight);
+    scrollRegions = collectScrollRegions(root, camera, scrollY);
+    painter.frame(collectRects(root, focusedId, camera, scrollY), collectTexts(root, camera, scrollY), collectGlass(root, camera));
+    overlay.syncFromScene(collectSemantics(root, camera, scrollY));
+  }
   function loop() {
     if (container.dirty) {
       container.dirty = false;
-      const root = rootElement();
-      if (root) {
-        const { cssWidth, cssHeight } = painter.size();
-        layoutWithYoga(root, cssWidth, cssHeight);
-        painter.frame(collectRects(root, focusedId, camera), collectTexts(root, camera), collectGlass(root, camera));
-        overlay.syncFromScene(collectSemantics(root, camera));
-      }
+      renderFrame();
     }
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
+  // Force-render hook (rAF is paused in a backgrounded tab; lets verification render).
+  (window as unknown as { __frame?: () => void }).__frame = renderFrame;
 
   addEventListener("resize", () => {
     container.dirty = true;

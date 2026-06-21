@@ -41,6 +41,7 @@ function applyStyle(yn: YogaNode, s: Style = {}): void {
   else if (s.width === "stretch") yn.setAlignSelf(Align.Stretch);
   if (typeof s.height === "number") yn.setHeight(s.height);
   if (typeof s.grow === "number") yn.setFlexGrow(s.grow);
+  if (typeof s.shrink === "number") yn.setFlexShrink(s.shrink);
   if (typeof s.minWidth === "number") yn.setMinWidth(s.minWidth);
 
   if (s.absolute) {
