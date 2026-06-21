@@ -4,7 +4,7 @@
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene";
 import type { ClipRect, GlassPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
-import { caretRect, selectionRects } from "./text";
+import { caretRect, measureWidth, selectionRects } from "./text";
 
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];
 const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
@@ -189,6 +189,50 @@ export function collectSelection(root: ElementNode, selection: Selection | null,
   const c = caretRect(nd.wrapped!.result, selection.focus);
   out.push({ x: (nd.x + c.x) * s + cam.tx, y: (nd.y + c.y) * s + cam.ty, w: Math.max(1.5, c.w * s), h: c.h * s, radius: 0, color: CARET_COLOR });
   return out;
+}
+
+export interface EditableRegion {
+  id: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  value: string;
+  onChange?: (v: string) => void;
+  textNode: ElementNode | null;
+  scale: number;
+}
+
+/** Editable fields (a transparent <input> is overlaid on these to drive editing/IME). */
+export function collectEditable(root: ElementNode, cam: Camera): EditableRegion[] {
+  const out: EditableRegion[] = [];
+  const walk = (n: ElementNode) => {
+    if (n.props.editable) {
+      let tnode: ElementNode | null = null;
+      const ft = (m: ElementNode) => {
+        if (tnode) return;
+        if (m.type === "text") {
+          tnode = m;
+          return;
+        }
+        for (const c of m.children) if (c.kind === "element") ft(c);
+      };
+      ft(n);
+      out.push({ id: n.id, x: n.x * cam.scale + cam.tx, y: n.y * cam.scale + cam.ty, w: n.w * cam.scale, h: n.h * cam.scale, value: n.props.value ?? "", onChange: n.props.onChange, textNode: tnode, scale: cam.scale });
+    }
+    for (const c of n.children) if (c.kind === "element") walk(c);
+  };
+  walk(root);
+  return out;
+}
+
+/** The blinking caret rect (screen) for an editable field at a caret offset. */
+export function editCaretRect(region: EditableRegion, caretOffset: number, cam: Camera): Rect | null {
+  const t = region.textNode;
+  if (!t) return null;
+  const s = t.props.style ?? {};
+  const cx = (t.x + measureWidth(region.value.slice(0, caretOffset), s)) * cam.scale + cam.tx;
+  return { x: cx, y: t.y * cam.scale + cam.ty, w: Math.max(1.5, 1.5 * cam.scale), h: t.h * cam.scale, radius: 0, color: CARET_COLOR };
 }
 
 /** Selectable text regions (screen rects) for click->caret hit-testing. */

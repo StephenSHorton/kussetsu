@@ -2,8 +2,8 @@ import { createElement } from "react";
 import { createRoot } from "./hostConfig";
 import { Painter } from "./webgpu";
 import { SemanticsOverlay } from "./a11y";
-import { collectRects, collectTexts, collectSemantics, collectGlass, collectScrollRegions, collectSelection, collectSelectable, type ScrollRegion, type Selection, type SelectableRegion } from "./collect";
-import { hitTest } from "./text";
+import { collectRects, collectTexts, collectSemantics, collectGlass, collectScrollRegions, collectSelection, collectSelectable, collectEditable, editCaretRect, type ScrollRegion, type Selection, type SelectableRegion, type EditableRegion } from "./collect";
+import { hitTest, measureWidth } from "./text";
 import type { Camera, Container, ElementNode } from "./scene";
 import { App } from "./App";
 import { runStress } from "./stress";
@@ -37,6 +37,69 @@ async function boot() {
   let selection: Selection | null = null;
   let selectables: SelectableRegion[] = [];
   let selecting = false;
+
+  // Editing (Gap C): a transparent <input> overlaid on an editable field captures
+  // keyboard + IME/composition (the browser does IME); the canvas renders the value
+  // + caret. This sidesteps "a canvas can't receive composition events".
+  let editables: EditableRegion[] = [];
+  let editingId: number | null = null;
+  let caretOffset = 0;
+  const editInput = document.createElement("input");
+  editInput.type = "text";
+  editInput.setAttribute("aria-label", "Edit field");
+  Object.assign(editInput.style, {
+    position: "absolute",
+    display: "none",
+    margin: "0",
+    padding: "0 8px",
+    border: "0",
+    background: "transparent",
+    color: "transparent",
+    caretColor: "transparent", // we paint our own caret on the GPU
+    outline: "none",
+    boxSizing: "border-box",
+    zIndex: "50",
+  } as Partial<CSSStyleDeclaration>);
+  (document.getElementById("stage") as HTMLElement).appendChild(editInput);
+
+  const positionInput = (r: EditableRegion) => {
+    editInput.style.left = `${r.x}px`;
+    editInput.style.top = `${r.y}px`;
+    editInput.style.width = `${r.w}px`;
+    editInput.style.height = `${r.h}px`;
+  };
+  const caretFromClick = (r: EditableRegion, screenX: number): number => {
+    const t = r.textNode;
+    if (!t) return r.value.length;
+    const localX = (screenX - (t.x * camera.scale + camera.tx)) / camera.scale;
+    const s = t.props.style ?? {};
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i <= r.value.length; i++) {
+      const d = Math.abs(measureWidth(r.value.slice(0, i), s) - localX);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+  const syncCaret = () => {
+    caretOffset = editInput.selectionStart ?? editInput.value.length;
+    container.dirty = true;
+  };
+  editInput.addEventListener("input", () => {
+    editables.find((e) => e.id === editingId)?.onChange?.(editInput.value);
+    syncCaret();
+  });
+  editInput.addEventListener("keyup", syncCaret);
+  editInput.addEventListener("click", syncCaret);
+  editInput.addEventListener("select", syncCaret);
+  editInput.addEventListener("blur", () => {
+    editingId = null;
+    editInput.style.display = "none";
+    container.dirty = true;
+  });
   const overlay = new SemanticsOverlay(
     a11yHost,
     {
@@ -56,6 +119,25 @@ async function boot() {
     hitTest(r.node.wrapped!.result, (e.offsetX - r.x) / r.scale, (e.offsetY - r.y) / r.scale);
 
   canvas.addEventListener("pointerdown", (e) => {
+    // Clicking an editable field focuses the hidden <input> (keyboard + IME).
+    for (let i = editables.length - 1; i >= 0; i--) {
+      const r = editables[i];
+      if (e.offsetX >= r.x && e.offsetX <= r.x + r.w && e.offsetY >= r.y && e.offsetY <= r.y + r.h) {
+        editingId = r.id;
+        editInput.style.display = "block";
+        positionInput(r);
+        editInput.value = r.value;
+        const off = caretFromClick(r, e.offsetX);
+        caretOffset = off;
+        // Focus AFTER the default mousedown focus-change, or it steals focus back.
+        setTimeout(() => {
+          editInput.focus();
+          editInput.setSelectionRange(off, off);
+        }, 0);
+        container.dirty = true;
+        return;
+      }
+    }
     // Clicking selectable text starts a selection (takes precedence over pan).
     for (let i = selectables.length - 1; i >= 0; i--) {
       const r = selectables[i];
@@ -136,7 +218,16 @@ async function boot() {
     layoutWithYoga(root, cssWidth, cssHeight);
     scrollRegions = collectScrollRegions(root, camera, scrollY);
     selectables = collectSelectable(root, camera);
+    editables = collectEditable(root, camera);
     const rects = [...collectRects(root, focusedId, camera, scrollY), ...collectSelection(root, selection, camera)];
+    if (editingId != null) {
+      const r = editables.find((e) => e.id === editingId);
+      if (r) {
+        positionInput(r); // keep the input over the field as layout moves
+        const caret = editCaretRect(r, caretOffset, camera);
+        if (caret) rects.push(caret);
+      }
+    }
     painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera));
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
   }

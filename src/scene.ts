@@ -47,6 +47,9 @@ export interface NodeProps {
   draggable?: boolean;
   onDrag?: (worldDx: number, worldDy: number) => void; // delta in WORLD px
   selectable?: boolean; // text node: wrap + click/drag to select
+  editable?: boolean; // view: a text field (transparent <input> overlay drives it)
+  value?: string; // editable field current value
+  onChange?: (v: string) => void; // editable field change
   glass?: GlassSpec; // present => painted as refractive glass
   children?: unknown;
 }

@@ -33,11 +33,12 @@ function fontStr(s: Style): string {
 }
 
 let ctx: CanvasRenderingContext2D | null = null;
-function measure(text: string, s: Style): number {
+export function measureWidth(text: string, s: Style): number {
   if (!ctx) ctx = document.createElement("canvas").getContext("2d");
   ctx!.font = fontStr(s);
   return ctx!.measureText(text).width;
 }
+const measure = measureWidth;
 
 const wordSeg = new Intl.Segmenter(undefined, { granularity: "word" });
 

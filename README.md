@@ -74,6 +74,12 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
   x-positions via prefix `measureText` (correctly kerned). Selection is two integer
   offsets; the `?react` paragraph is click-drag selectable with a real multi-line
   highlight + caret. LTR only — bidi/complex-script carets are out of scope.
+- **Text — editing + IME (C) DONE.** An editable field overlays a *transparent*
+  real `<input>`; the browser owns keyboard + **composition/IME**, and `input`
+  events sync the value back to React → GPU repaint, with a GPU-painted caret at
+  the input's selection. This is the standard canvas-editor move (Excalidraw) that
+  sidesteps "a `<canvas>` can't receive composition events." (Focus on a
+  `setTimeout(0)` so the default mousedown doesn't steal it.)
 
 ## What it deliberately does NOT (yet) solve
 Bidi / complex-script (RTL, Arabic/Indic) text selection, a glyph atlas (whole-string

@@ -29,6 +29,7 @@ export function App() {
   const [nodes, setNodes] = useState<GNode[]>(INITIAL_NODES);
   const [glassA, setGlassA] = useState({ x: 150, y: 188 });
   const [glassB, setGlassB] = useState({ x: 300, y: 256 });
+  const [field, setField] = useState("Edit me — type or use IME");
 
   const moveNode = (id: number, dx: number, dy: number) =>
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x: n.x + dx, y: n.y + dy } : n)));
@@ -61,6 +62,11 @@ export function App() {
         <text selectable role="paragraph" style={{ width: "stretch", fontSize: 16, fontWeight: 400, color: [0.82, 0.87, 0.97, 1] }}>
           {"This paragraph is GPU-painted and wraps via Intl.Segmenter. Click and drag across it to select — the highlight and caret come from per-character positions measured on the fly. Real text, on a canvas we own."}
         </text>
+      </view>
+
+      {/* Editable field (C): click to focus a transparent <input>; type / IME. */}
+      <view editable value={field} onChange={setField} style={{ width: 440, height: 46, direction: "row", align: "center", padding: 14, radius: 12, background: [0.1, 0.12, 0.2, 1] }}>
+        <text style={{ fontSize: 16, color: [0.92, 0.95, 1, 1] }}>{field}</text>
       </view>
 
       {/* Scrolling + clipping: a fixed-height list. */}
