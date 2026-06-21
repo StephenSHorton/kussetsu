@@ -253,7 +253,11 @@ const GLYPH_BASE = 44; // CSS px the atlas glyph is measured at
 const GLYPH_SS = 2; // atlas supersample
 const GLYPH_PAD = 2; // CSS px padding around each glyph cell (overhang)
 const GLYPH_ASCENT = Math.round(GLYPH_BASE * 0.98);
-const ATLAS_SIZE = 1024;
+// One shared atlas for every (weight, glyph) pair. A real multi-weight UI burns through
+// the 1024² budget fast — each weight is a distinct entry — and overflow glyphs silently
+// rasterize blank. 2048² (~4× the slots) covers realistic multi-weight UIs; a true fix
+// for unbounded text would page or evict the atlas.
+const ATLAS_SIZE = 2048;
 const FLOATS_PER_GLYPH = 16; // [x,y,w,h][u0,v0,u1,v1][r,g,b,a][clip]
 const GLYPH_STRIDE = FLOATS_PER_GLYPH * 4;
 
