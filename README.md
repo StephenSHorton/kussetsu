@@ -87,6 +87,15 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
   down. (Positions use per-glyph advance — kerning slightly off vs the browser's
   shaped string, imperceptible for UI text; the old `getText`/text pipeline is dead.)
 
+## A real app on it
+The **default route at `:5280` is a glass chat app** (`src/ChatApp.tsx`) — not a
+feature demo, an actual app: a sidebar of conversations (click to switch), a
+scrolling thread with wrapping + selectable bubbles, a **frosted-glass header +
+composer that refract the messages**, and an **editable composer** (real `<input>`
+overlay, IME-capable) with a working **Send**. Everything is GPU-painted; the DOM
+only carries semantics (roles, focus ring, find-in-page) and input.
+Routes: `/` = chat app · `/?stress` = 10k-node demo · `/?demo` = feature kitchen-sink.
+
 ## What it deliberately does NOT (yet) solve
 Bidi / complex-script (RTL, Arabic/Indic) text selection, MSDF (crisp at *any*
 zoom — the atlas softens past its base size), and a thousand edge cases.

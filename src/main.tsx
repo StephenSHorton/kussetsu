@@ -6,7 +6,9 @@ import { collectRects, collectTexts, collectSemantics, collectGlass, collectScro
 import { hitTest, measureWidth } from "./text";
 import type { Camera, Container, ElementNode } from "./scene";
 import { App } from "./App";
+import { ChatApp } from "./ChatApp";
 import { runStress } from "./stress";
+import type { ComponentType } from "react";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
 const a11yHost = document.getElementById("a11y") as HTMLElement;
@@ -15,7 +17,7 @@ let focusedId: number | null = null;
 
 const container: Container = { kind: "container", canvas, children: [], dirty: true };
 
-async function boot() {
+async function boot(Component: ComponentType, opts: { camera: boolean } = { camera: true }) {
   // Real layout engine (Yoga, WASM). Lazy-imported so the stress route doesn't
   // pull in the WASM. The await also ensures Yoga's WASM is loaded before layout.
   const { layoutWithYoga } = await import("./yogaLayout");
@@ -150,10 +152,12 @@ async function boot() {
         return;
       }
     }
-    panning = true;
-    panX = e.clientX;
-    panY = e.clientY;
-    canvas.setPointerCapture(e.pointerId);
+    if (opts.camera) {
+      panning = true;
+      panX = e.clientX;
+      panY = e.clientY;
+      canvas.setPointerCapture(e.pointerId);
+    }
   });
   canvas.addEventListener("pointermove", (e) => {
     if (selecting && selection) {
@@ -197,6 +201,7 @@ async function boot() {
           return;
         }
       }
+      if (!opts.camera) return; // an app shouldn't zoom; only its lists scroll
       const ns = Math.min(3, Math.max(0.35, camera.scale * Math.exp(-e.deltaY * 0.0015)));
       const wx = (e.offsetX - camera.tx) / camera.scale;
       const wy = (e.offsetY - camera.ty) / camera.scale;
@@ -246,15 +251,14 @@ async function boot() {
     container.dirty = true;
   });
 
-  createRoot(container).render(createElement(App));
+  createRoot(container).render(createElement(Component));
   // eslint-disable-next-line no-console
   console.log("[gpu-ui] booted — React is driving a WebGPU canvas, zero DOM for visuals");
 }
 
-// Default: the 10k-node stress demo. `?react` runs the React-reconciler demo.
-if (new URLSearchParams(location.search).has("react")) {
-  boot();
-} else {
+// Default: the glass chat app. `?stress` = 10k-node demo, `?demo` = kitchen sink.
+const params = new URLSearchParams(location.search);
+if (params.has("stress")) {
   runStress(canvas, a11yHost).catch((err) => {
     document.body.insertAdjacentHTML(
       "beforeend",
@@ -262,4 +266,8 @@ if (new URLSearchParams(location.search).has("react")) {
     );
     throw err;
   });
+} else if (params.has("demo")) {
+  boot(App, { camera: true });
+} else {
+  boot(ChatApp, { camera: false });
 }

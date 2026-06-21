@@ -44,6 +44,7 @@ function applyStyle(yn: YogaNode, s: Style = {}): void {
   if (typeof s.grow === "number") yn.setFlexGrow(s.grow);
   if (typeof s.shrink === "number") yn.setFlexShrink(s.shrink);
   if (typeof s.minWidth === "number") yn.setMinWidth(s.minWidth);
+  if (typeof s.maxWidth === "number") yn.setMaxWidth(s.maxWidth);
 
   if (s.absolute) {
     yn.setPositionType(PositionType.Absolute);
@@ -65,7 +66,8 @@ function build(scene: ElementNode): YogaNode {
       const constrained = (widthMode === MeasureMode.AtMost || widthMode === MeasureMode.Exactly) && Number.isFinite(availW) && availW > 0;
       if (constrained) {
         const single = measure(str, st);
-        if (single.w <= availW && !str.includes("\n")) {
+        // selectable text always keeps wrap geometry (so even single-line is selectable)
+        if (!scene.props.selectable && single.w <= availW && !str.includes("\n")) {
           scene.wrapped = undefined; // fits on one line
           return { width: widthMode === MeasureMode.Exactly ? availW : single.w, height: single.h };
         }

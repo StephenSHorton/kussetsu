@@ -16,6 +16,7 @@ export interface Style {
   grow?: number; // flex-grow (real layout only)
   shrink?: number; // flex-shrink (real layout only)
   minWidth?: number; // (real layout only)
+  maxWidth?: number; // (real layout only) — e.g. chat bubbles hug short / wrap long
   overflow?: "scroll" | "hidden"; // clip children to this box; "scroll" = wheel-scrollable
   absolute?: { x: number; y: number }; // take out of flow, place at viewport x/y
   background?: RGBA;
