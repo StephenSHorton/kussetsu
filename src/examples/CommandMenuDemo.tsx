@@ -165,33 +165,49 @@ function Scene({ controller, toast }: { controller: CommandMenuController; toast
   );
 }
 
+function makeItems(run: (label: string) => void): CommandItem[] {
+  const item = (id: string, label: string, hint?: string, keywords?: string): CommandItem => ({ id, label, hint, keywords, onSelect: () => run(label) });
+  return [
+    item("new", "New File", "⌘N"),
+    item("open", "Open…", "⌘O", "file"),
+    item("save", "Save", "⌘S"),
+    item("saveas", "Save As…", "⇧⌘S"),
+    item("find", "Find in Files", "⇧⌘F", "search grep"),
+    item("goto", "Go to Line…", "⌃G"),
+    item("format", "Format Document", "⇧⌥F", "prettier"),
+    item("split", "Split Editor", "⌘\\"),
+    item("theme", "Toggle Color Theme", undefined, "dark light"),
+    item("sidebar", "Toggle Sidebar", "⌘B"),
+    item("zoomin", "Zoom In", "⌘="),
+    item("zoomout", "Zoom Out", "⌘-"),
+    item("reload", "Reload Window", undefined, "refresh"),
+    item("settings", "Open Settings", "⌘,", "preferences"),
+    item("palette", "Command Palette Help"),
+  ];
+}
+
+// Mountable panel for the tabbed showcase: owns the controller lifecycle (the hidden
+// combobox + ⌘K listener) and renders the GPU skin. Uses the single #gpu canvas's host.
+export function CommandMenuPanel() {
+  const toastRef = useRef<{ label: string; at: number } | null>(null);
+  const [controller, setController] = useState<CommandMenuController | null>(null);
+  useEffect(() => {
+    const host = (document.getElementById("gpu") as HTMLCanvasElement).parentElement!;
+    const run = (label: string) => { toastRef.current = { label, at: performance.now() }; };
+    const c = createCommandMenu({ host, items: makeItems(run), placeholder: "Type a command or search" });
+    (window as unknown as { __menu?: CommandMenuController }).__menu = c;
+    setController(c);
+    return () => c.destroy();
+  }, []);
+  if (!controller) return <view style={{ width: window.innerWidth, height: window.innerHeight, background: [0.03, 0.04, 0.08, 1] }} />;
+  return <Scene controller={controller} toast={() => toastRef.current} />;
+}
+
 export async function bootCommandMenu(canvas: HTMLCanvasElement): Promise<void> {
   const root = await createGpuRoot(canvas, { camera: false });
-  const host = canvas.parentElement!;
-
   let toastState: { label: string; at: number } | null = null;
-  const run = (label: string) => { toastState = { label, at: performance.now() }; root.requestRender(); console.log(`[cmd] ${label}`); };
-
-  const ITEMS: CommandItem[] = [
-    { id: "new", label: "New File", hint: "⌘N", onSelect: () => run("New File") },
-    { id: "open", label: "Open…", hint: "⌘O", keywords: "file", onSelect: () => run("Open…") },
-    { id: "save", label: "Save", hint: "⌘S", onSelect: () => run("Save") },
-    { id: "saveas", label: "Save As…", hint: "⇧⌘S", onSelect: () => run("Save As…") },
-    { id: "find", label: "Find in Files", hint: "⇧⌘F", keywords: "search grep", onSelect: () => run("Find in Files") },
-    { id: "goto", label: "Go to Line…", hint: "⌃G", onSelect: () => run("Go to Line…") },
-    { id: "format", label: "Format Document", hint: "⇧⌥F", keywords: "prettier", onSelect: () => run("Format Document") },
-    { id: "split", label: "Split Editor", hint: "⌘\\", onSelect: () => run("Split Editor") },
-    { id: "theme", label: "Toggle Color Theme", keywords: "dark light", onSelect: () => run("Toggle Color Theme") },
-    { id: "sidebar", label: "Toggle Sidebar", hint: "⌘B", onSelect: () => run("Toggle Sidebar") },
-    { id: "zoomin", label: "Zoom In", hint: "⌘=", onSelect: () => run("Zoom In") },
-    { id: "zoomout", label: "Zoom Out", hint: "⌘-", onSelect: () => run("Zoom Out") },
-    { id: "reload", label: "Reload Window", keywords: "refresh", onSelect: () => run("Reload Window") },
-    { id: "settings", label: "Open Settings", hint: "⌘,", keywords: "preferences", onSelect: () => run("Open Settings") },
-    { id: "palette", label: "Command Palette Help", onSelect: () => run("Command Palette Help") },
-  ];
-
-  const controller = createCommandMenu({ host, items: ITEMS, placeholder: "Type a command or search" });
+  const run = (label: string) => { toastState = { label, at: performance.now() }; root.requestRender(); };
+  const controller = createCommandMenu({ host: canvas.parentElement!, items: makeItems(run), placeholder: "Type a command or search" });
   (window as unknown as { __menu?: CommandMenuController }).__menu = controller;
-
   root.render(<Scene controller={controller} toast={() => toastState} />);
 }

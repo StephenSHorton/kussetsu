@@ -10,6 +10,7 @@ import { CompatDemo } from "./compat";
 import { bootCommandMenu } from "./CommandMenuDemo";
 import { FxGallery } from "./FxGallery";
 import { MorphDemo } from "./MorphDemo";
+import { Showcase } from "./Showcase";
 import { runStress } from "./stress";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
@@ -53,6 +54,8 @@ if (params.has("stress")) {
   boot(FxGallery, { camera: false });
 } else if (params.has("spring")) {
   boot(MorphDemo, { camera: false });
-} else {
+} else if (params.has("chat")) {
   boot(ChatApp, { camera: false });
+} else {
+  boot(Showcase, { camera: false }); // default: the tabbed showcase
 }
