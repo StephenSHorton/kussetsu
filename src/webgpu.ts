@@ -42,14 +42,19 @@ const PREMUL_BLEND: GPUBlendState = {
 };
 
 const RECT_WGSL = /* wgsl */ `
-struct Viewport { size: vec2f };
-@group(0) @binding(0) var<uniform> vp: Viewport;
+// sizePad.xy = viewport CSS px; cam.xy = translate, cam.z = scale.
+// Rect instances are WORLD coords; the camera maps world -> screen here, so 10k
+// static nodes upload once and pan/zoom only touches this uniform.
+struct VP { sizePad: vec4f, cam: vec4f };
+@group(0) @binding(0) var<uniform> vp: VP;
 struct VSOut { @builtin(position) pos: vec4f, @location(0) local: vec2f, @location(1) half: vec2f, @location(2) radius: f32, @location(3) color: vec4f };
 const QUAD = array<vec2f, 6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
 @vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) radius: f32, @location(2) color: vec4f) -> VSOut {
   let q = QUAD[vi];
-  let px = rect.xy + q * rect.zw;
-  let clip = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
+  let worldPx = rect.xy + q * rect.zw;
+  let screenPx = worldPx * vp.cam.z + vp.cam.xy;
+  let size = vp.sizePad.xy;
+  let clip = vec2f(screenPx.x/size.x*2.0-1.0, -(screenPx.y/size.y*2.0-1.0));
   var o: VSOut;
   o.pos = vec4f(clip,0,1); o.local = (q-0.5)*rect.zw; o.half = rect.zw*0.5;
   o.radius = min(radius, min(o.half.x, o.half.y)); o.color = color;
@@ -205,6 +210,11 @@ export class Painter {
   private textRectBuffers: GPUBuffer[] = [];
   private glassBuffers: GPUBuffer[] = [];
 
+  // Bulk node graph: WORLD-space instances uploaded once; camera applied in-shader.
+  private nodeBuffer: GPUBuffer | null = null;
+  private nodeCount = 0;
+  private nodeCap = 0;
+
   private constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
   }
@@ -272,7 +282,7 @@ export class Painter {
       primitive: { topology: "triangle-list" },
     });
 
-    this.vpBuffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.vpBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.rectVpBindGroup = device.createBindGroup({
       layout: this.rectPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }],
@@ -353,7 +363,8 @@ export class Painter {
     const fbh = this.canvas.height;
     const dpr = fbw / cssWidth;
     this.ensureBackdrop(fbw, fbh);
-    this.device.queue.writeBuffer(this.vpBuffer, 0, new Float32Array([cssWidth, cssHeight, 0, 0]));
+    // identity camera — rects from collectRects() are already screen-space.
+    this.device.queue.writeBuffer(this.vpBuffer, 0, new Float32Array([cssWidth, cssHeight, 0, 0, 0, 0, 1, 0]));
 
     // rect instances
     let instanceBuffer: GPUBuffer | null = null;
@@ -445,5 +456,97 @@ export class Painter {
 
     this.device.queue.submit([encoder.finish()]);
     instanceBuffer?.destroy();
+  }
+
+  /** Upload the static node graph ONCE (WORLD coords, RECT instance layout). */
+  setGraphNodes(instanceData: Float32Array, count: number) {
+    if (count > this.nodeCap) {
+      this.nodeBuffer?.destroy();
+      this.nodeCap = Math.ceil(count * 1.2);
+      this.nodeBuffer = this.device.createBuffer({ size: this.nodeCap * RECT_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    }
+    this.device.queue.writeBuffer(this.nodeBuffer!, 0, instanceData, 0, count * FLOATS_PER_RECT);
+    this.nodeCount = count;
+  }
+
+  /** Draw the uploaded node graph under `cam`, plus screen-space labels + glass.
+   *  Per frame this is one instanced draw for ALL nodes + N label draws + glass. */
+  frameGraph(cam: { tx: number; ty: number; scale: number }, texts: TextItem[], glass: GlassPanel[]) {
+    const { cssWidth, cssHeight } = this.resize();
+    const fbw = this.canvas.width;
+    const fbh = this.canvas.height;
+    const dpr = fbw / cssWidth;
+    this.ensureBackdrop(fbw, fbh);
+    this.device.queue.writeBuffer(this.vpBuffer, 0, new Float32Array([cssWidth, cssHeight, 0, 0, cam.tx, cam.ty, cam.scale, 0]));
+
+    const textEntries = texts.map((t) => this.getText(t));
+    while (this.textRectBuffers.length < texts.length) {
+      this.textRectBuffers.push(this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+    }
+    const textBindGroups = texts.map((t, i) => {
+      const e = textEntries[i];
+      this.device.queue.writeBuffer(this.textRectBuffers[i], 0, new Float32Array([t.x, t.y, e.cssW, e.cssH]));
+      return this.device.createBindGroup({
+        layout: this.textPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.vpBuffer } },
+          { binding: 1, resource: { buffer: this.textRectBuffers[i] } },
+          { binding: 2, resource: this.sampler },
+          { binding: 3, resource: e.view },
+        ],
+      });
+    });
+
+    while (this.glassBuffers.length < glass.length) {
+      this.glassBuffers.push(this.device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+    }
+    const glassBindGroups = glass.map((g, i) => {
+      const u = new Float32Array(20);
+      u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
+      u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
+      u[8] = g.refraction; u[9] = g.frost; u[10] = g.tint; u[11] = g.rim;
+      u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
+      u[16] = dpr; u[17] = g.radius;
+      this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
+      return this.device.createBindGroup({
+        layout: this.glassPipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.glassBuffers[i] } },
+          { binding: 1, resource: this.sampler },
+          { binding: 2, resource: this.backdropView! },
+        ],
+      });
+    });
+
+    const encoder = this.device.createCommandEncoder();
+    const p1 = encoder.beginRenderPass({
+      colorAttachments: [{ view: this.backdropView!, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
+    });
+    if (this.nodeCount && this.nodeBuffer) {
+      p1.setPipeline(this.rectPipeline);
+      p1.setBindGroup(0, this.rectVpBindGroup);
+      p1.setVertexBuffer(0, this.nodeBuffer);
+      p1.draw(6, this.nodeCount); // ALL 10k nodes — one instanced draw
+    }
+    textBindGroups.forEach((bg) => {
+      p1.setPipeline(this.textPipeline);
+      p1.setBindGroup(0, bg);
+      p1.draw(6);
+    });
+    p1.end();
+
+    const p2 = encoder.beginRenderPass({
+      colorAttachments: [{ view: this.context.getCurrentTexture().createView(), clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }],
+    });
+    p2.setPipeline(this.blitPipeline);
+    p2.setBindGroup(0, this.blitBindGroup!);
+    p2.draw(3);
+    glassBindGroups.forEach((bg) => {
+      p2.setPipeline(this.glassPipeline);
+      p2.setBindGroup(0, bg);
+      p2.draw(6);
+    });
+    p2.end();
+    this.device.queue.submit([encoder.finish()]);
   }
 }

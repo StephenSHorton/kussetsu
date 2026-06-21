@@ -6,6 +6,7 @@ import { SemanticsOverlay } from "./a11y";
 import { collectRects, collectTexts, collectSemantics, collectGlass } from "./collect";
 import type { Camera, Container, ElementNode } from "./scene";
 import { App } from "./App";
+import { runStress } from "./stress";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
 const a11yHost = document.getElementById("a11y") as HTMLElement;
@@ -110,4 +111,15 @@ async function boot() {
   console.log("[gpu-ui] booted — React is driving a WebGPU canvas, zero DOM for visuals");
 }
 
-boot();
+// Default: the 10k-node stress demo. `?react` runs the React-reconciler demo.
+if (new URLSearchParams(location.search).has("react")) {
+  boot();
+} else {
+  runStress(canvas, a11yHost).catch((err) => {
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      `<div style="position:fixed;inset:0;display:grid;place-items:center;color:#f88;font:600 18px system-ui">${(err as Error).message}</div>`,
+    );
+    throw err;
+  });
+}

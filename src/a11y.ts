@@ -167,7 +167,9 @@ export class SemanticsOverlay {
     el.style.width = `${r.width}px`;
     el.style.height = `${r.height}px`;
     el.setAttribute("aria-label", node.label);
-    if (node.role === "heading" || node.role === "paragraph") el.textContent = node.label;
+    // Headings, paragraphs, and role-less regions (graph nodes) carry real text so
+    // Cmd+F / find-in-page locates them and screen readers read them.
+    if (node.role !== "button") el.textContent = node.label;
     if (node.role === "heading") el.setAttribute("aria-level", String(node.level ?? 2));
     el.tabIndex = node.focusable ? 0 : -1;
   }
