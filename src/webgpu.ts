@@ -122,31 +122,6 @@ fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
 }
 `;
 
-const TEXT_WGSL = /* wgsl */ `
-struct Viewport { size: vec2f };
-struct TU { rect: vec4f, clip: vec4f };
-@group(0) @binding(0) var<uniform> vp: Viewport;
-@group(0) @binding(1) var<uniform> tu: TU;
-@group(0) @binding(2) var samp: sampler;
-@group(0) @binding(3) var tex: texture_2d<f32>;
-struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) screenPos: vec2f, @location(2) clip: vec4f };
-const Q = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
-@vertex fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
-  let q = Q[vi];
-  let px = tu.rect.xy + q*tu.rect.zw;
-  let ndc = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
-  var o: VSOut; o.pos = vec4f(ndc,0,1); o.uv = q; o.screenPos = px; o.clip = tu.clip; return o;
-}
-fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
-  if (clip.z <= 0.0) { return 1.0; }
-  let x1 = clip.x + clip.z; let y1 = clip.y + clip.w;
-  let ax = smoothstep(clip.x - 0.5, clip.x + 0.5, p.x) * (1.0 - smoothstep(x1 - 0.5, x1 + 0.5, p.x));
-  let ay = smoothstep(clip.y - 0.5, clip.y + 0.5, p.y) * (1.0 - smoothstep(y1 - 0.5, y1 + 0.5, p.y));
-  return ax * ay;
-}
-@fragment fn fs(in: VSOut) -> @location(0) vec4f { return textureSample(tex, samp, in.uv) * clipAlpha(in.screenPos, in.clip); }
-`;
-
 // Fullscreen blit of the backdrop texture onto the canvas (replace).
 const BLIT_WGSL = /* wgsl */ `
 @group(0) @binding(0) var samp: sampler;
@@ -292,9 +267,6 @@ interface GlyphEntry {
   advance: number;
 }
 
-function rgbaCss(c: RGBA): string {
-  return `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3]})`;
-}
 
 export class Painter {
   device!: GPUDevice;
@@ -303,7 +275,6 @@ export class Painter {
   private canvas: HTMLCanvasElement;
 
   private rectPipeline!: GPURenderPipeline;
-  private textPipeline!: GPURenderPipeline;
   private blitPipeline!: GPURenderPipeline;
   private glassPipeline!: GPURenderPipeline;
   private vpBuffer!: GPUBuffer;
@@ -319,8 +290,6 @@ export class Painter {
   private backdropW = 0;
   private backdropH = 0;
 
-  private texCache = new Map<string, { view: GPUTextureView; cssW: number; cssH: number }>();
-  private textRectBuffers: GPUBuffer[] = [];
   private glassBuffers: GPUBuffer[] = [];
 
   // Bulk node graph: WORLD-space instances uploaded once; camera applied in-shader.
@@ -381,14 +350,6 @@ export class Painter {
         ],
       },
       fragment: { module: rectModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
-      primitive: { topology: "triangle-list" },
-    });
-
-    const textModule = device.createShaderModule({ code: TEXT_WGSL });
-    this.textPipeline = device.createRenderPipeline({
-      layout: "auto",
-      vertex: { module: textModule, entryPoint: "vs" },
-      fragment: { module: textModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
       primitive: { topology: "triangle-list" },
     });
 
@@ -539,39 +500,6 @@ export class Painter {
         dstView = t;
       }
     }
-  }
-
-  private getText(item: TextItem) {
-    const key = `${item.size}|${item.weight}|${rgbaCss(item.color)}|${item.text}`;
-    let entry = this.texCache.get(key);
-    if (entry) return entry;
-    const dpr = window.devicePixelRatio || 1;
-    const font = `${item.weight} ${item.size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
-    const measure = document.createElement("canvas").getContext("2d")!;
-    measure.font = font;
-    const m = measure.measureText(item.text);
-    const cssW = Math.ceil(m.width) + 2;
-    const ascent = m.actualBoundingBoxAscent || item.size * 0.8;
-    const descent = m.actualBoundingBoxDescent || item.size * 0.2;
-    const cssH = Math.ceil(ascent + descent) + 2;
-    const off = document.createElement("canvas");
-    off.width = Math.max(1, Math.round(cssW * dpr));
-    off.height = Math.max(1, Math.round(cssH * dpr));
-    const ctx = off.getContext("2d")!;
-    ctx.scale(dpr, dpr);
-    ctx.font = font;
-    ctx.fillStyle = rgbaCss(item.color);
-    ctx.textBaseline = "alphabetic";
-    ctx.fillText(item.text, 1, ascent + 1);
-    const texture = this.device.createTexture({
-      size: [off.width, off.height],
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
-    });
-    this.device.queue.copyExternalImageToTexture({ source: off, flipY: false }, { texture, premultipliedAlpha: true }, [off.width, off.height]);
-    entry = { view: texture.createView(), cssW, cssH };
-    this.texCache.set(key, entry);
-    return entry;
   }
 
   // --- Gap B: glyph atlas ---
