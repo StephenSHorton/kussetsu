@@ -1,11 +1,16 @@
-# gpu-ui-poc — proof of the loop
+# Kussetsu
 
-A brutal little proof that you can author UI in **plain React** while a custom
-renderer paints **every pixel on the GPU** (WebGPU/WGSL) and the DOM survives only
-as an **invisible, weightless layer for accessibility + input**.
+Author your UI in **plain React** while a custom renderer paints **every pixel on
+the GPU** (WebGPU/WGSL) — the DOM survives only as an **invisible, weightless layer
+for accessibility + input**.
 
-No DOM is used for visuals. The card, text, button, and focus ring you see are all
+No DOM is used for visuals: the cards, text, glass, and focus ring you see are all
 WGSL output on a single `<canvas>`.
+
+> Kussetsu began as a DOM-based "glass as paint" component library. That approach hit
+> a hard wall (the browser compositor won't refract live pixels behind arbitrary /
+> portaled DOM). **Kussetsu is now the GPU renderer** — we own the framebuffer, so
+> the glass-anywhere problem (and a lot more) simply dissolves.
 
 ## The loop
 
