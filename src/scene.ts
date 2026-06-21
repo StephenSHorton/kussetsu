@@ -34,8 +34,8 @@ export interface GlassSpec {
   blur?: number; // default 2 — backdrop blur radius, CSS px
   tint?: number; // default 0.05 — mix toward tintColor
   tintColor?: RGBA; // default cool white
-  rim?: number; // default 22 — rim band width, CSS px
-  specular?: number; // default 0.5 — highlight/glint intensity
+  rim?: number; // default 16 — rim band width, CSS px
+  specular?: number; // default 0.05 — highlight/glint intensity
   dispersion?: number; // default 0.025 — chromatic rim split (the colorful edge)
 }
 

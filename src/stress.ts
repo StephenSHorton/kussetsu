@@ -163,7 +163,7 @@ export async function runStress(canvas: HTMLCanvasElement, a11yHost: HTMLElement
     }
 
     const glass: GlassPanel[] = [
-      { x: lens.x, y: lens.y, w: lens.w, h: lens.h, radius: 28, refraction: 0.13, blur: 2.5, tint: 0.06, tintColor: [0.82, 0.87, 1, 1], rim: 28, brighten: 1.03, specular: 0.5, dispersion: 0.025 },
+      { x: lens.x, y: lens.y, w: lens.w, h: lens.h, radius: 28, refraction: 0.13, blur: 2.5, tint: 0.06, tintColor: [0.82, 0.87, 1, 1], rim: 16, brighten: 1.03, specular: 0.05, dispersion: 0.025 },
     ];
     sem.push({
       id: "lens",

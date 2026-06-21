@@ -4,7 +4,7 @@ import type { RGBA } from "./scene";
 const WHITE: RGBA = [0.96, 0.97, 1, 1];
 const MUTED: RGBA = [0.62, 0.68, 0.82, 1];
 const PAGE: RGBA = [0.03, 0.04, 0.07, 1];
-const GLASS = { refraction: 0.13, blur: 2.5, tint: 0.06, rim: 28 } as const;
+const GLASS = { refraction: 0.13, blur: 2.5, tint: 0.06 } as const; // rim/specular = defaults (16 / 0.05)
 
 interface GNode {
   id: number;

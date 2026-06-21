@@ -149,9 +149,9 @@ export function collectGlass(root: ElementNode, cam: Camera): GlassPanel[] {
         blur: (t ? t.blur : (g.blur ?? 2)) * cam.scale,
         tint: t ? t.tint : (g.tint ?? 0.05),
         tintColor: t ? t.tintColor : (g.tintColor ?? GLASS_TINT),
-        rim: (t ? t.rim : (g.rim ?? 22)) * cam.scale,
+        rim: (t ? t.rim : (g.rim ?? 16)) * cam.scale,
         brighten: t ? t.brighten : 1.03,
-        specular: t ? t.specular : (g.specular ?? 0.5),
+        specular: t ? t.specular : (g.specular ?? 0.05),
         dispersion: t ? t.dispersion : (g.dispersion ?? 0.025),
       });
     }
