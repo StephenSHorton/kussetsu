@@ -76,9 +76,18 @@ export class SemanticsOverlay {
         this.pool.delete(id);
       }
     }
-    for (const node of nodes) {
-      const el = this.pool.get(node.id)?.el;
-      if (el) this.root.appendChild(el);
+    // Reorder the DOM to match reading order ONLY when it actually changed. Re-appending
+    // every frame moves nodes in the DOM, and a move that lands between a real (human-slow)
+    // click's mousedown and mouseup makes the browser SWALLOW the click — focus survives,
+    // activation doesn't. That's the "buttons focus but don't fire" bug. Stable frames now
+    // do zero DOM mutation here, so clicks land.
+    const want = nodes.map((n) => n.id).join(",");
+    const have = Array.from(this.root.children, (el) => (el as HTMLElement).dataset.nodeId ?? "").join(",");
+    if (want !== have) {
+      for (const node of nodes) {
+        const el = this.pool.get(node.id)?.el;
+        if (el) this.root.appendChild(el);
+      }
     }
     if (focusedId && this.pool.has(focusedId)) {
       const el = this.pool.get(focusedId)!.el;
