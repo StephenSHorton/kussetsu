@@ -98,6 +98,13 @@ fn paint(uv: vec2f) -> vec4f {
   // parallax shifts the sampled backdrop so the glass tracks a moving wallpaper
   // (the visible backdrop is translated by the matching amount) — no edge seam.
   let baseUV = u.origin + uv * u.size + u.parallax;
+  // In-bounds mask: fade to transparent where the panel samples OUTSIDE the
+  // captured backdrop (e.g. a portaled overlay floating past its scene's small
+  // texture). clamp-to-edge would otherwise smear a light edge texel as a white
+  // block; transparent lets the real page show through, which reads as glass.
+  let bm =
+    smoothstep(0.0, 0.004, baseUV.x) * (1.0 - smoothstep(0.996, 1.0, baseUV.x)) *
+    smoothstep(0.0, 0.004, baseUV.y) * (1.0 - smoothstep(0.996, 1.0, baseUV.y));
   let refrUV = baseUV + n * edge * u.refraction * u.size;
   let ca = u.dispersion * edge * length(u.size);
 
@@ -126,6 +133,9 @@ fn paint(uv: vec2f) -> vec4f {
   col += vec3f(1.0) * sheen * 0.05 * edge * u.specular;
   col += vec3f(1.0) * glint * 0.14 * u.specular;
 
-  return vec4f(col, 1.0);
+  // Out of bounds: fade the (bad, smeared-edge) color to near-black but keep a
+  // floor of opacity so the panel stays a READABLE dark-translucent glass rather
+  // than vanishing — a popover floating past its backdrop should dim, not blank.
+  return vec4f(col * bm, mix(0.6, 1.0, bm));
 }
 `;
