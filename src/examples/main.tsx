@@ -6,6 +6,7 @@ import { buildGlassPanel } from "./devPanel";
 import { glassTuning } from "../core/glassTuning";
 import { App } from "./App";
 import { ChatApp } from "./ChatApp";
+import { CompatDemo } from "./compat";
 import { runStress } from "./stress";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
@@ -33,12 +34,15 @@ async function boot(Component: ComponentType, opts: GpuRootOptions) {
   }
 }
 
-// Default: the glass chat app. `?stress` = 10k-node demo, `?demo` = kitchen sink.
+// Default: the glass chat app. `?stress` = 10k-node demo, `?demo` = kitchen sink,
+// `?compat` = the kussetsu/compat migration on-ramp (plain HTML/Tailwind → GPU).
 const params = new URLSearchParams(location.search);
 if (params.has("stress")) {
   runStress(canvas).catch(showError);
 } else if (params.has("demo")) {
   boot(App, { camera: false, pageScroll: true });
+} else if (params.has("compat")) {
+  boot(CompatDemo, { camera: false });
 } else {
   boot(ChatApp, { camera: false });
 }
