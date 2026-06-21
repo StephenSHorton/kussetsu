@@ -13,7 +13,7 @@ const MUTED: RGBA = [0.6, 0.65, 0.78, 1];
 const ACCENT: RGBA = [0.36, 0.46, 0.97, 1];
 const THEM: RGBA = [0.17, 0.19, 0.29, 1];
 const ROW_ACTIVE: RGBA = [0.14, 0.17, 0.29, 1];
-const GLASS = { refraction: 0.1, blur: 2.5, tint: 0.05 } as const; // rim/specular = defaults (16 / 0.05)
+const GLASS = { refraction: 0.1, tint: 0.05 } as const; // blur/rim/specular = defaults (0 / 16 / 0.05)
 const SIDEBAR_W = 300;
 const HEADER_H = 64;
 const COMPOSER_H = 76;
