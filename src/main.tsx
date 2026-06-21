@@ -1,7 +1,6 @@
 import { createElement } from "react";
 import { createRoot } from "./hostConfig";
 import { Painter } from "./webgpu";
-import { layout } from "./layout";
 import { SemanticsOverlay } from "./a11y";
 import { collectRects, collectTexts, collectSemantics, collectGlass } from "./collect";
 import type { Camera, Container, ElementNode } from "./scene";
@@ -16,6 +15,10 @@ let focusedId: number | null = null;
 const container: Container = { kind: "container", canvas, children: [], dirty: true };
 
 async function boot() {
+  // Real layout engine (Yoga, WASM). Lazy-imported so the stress route doesn't
+  // pull in the WASM. The await also ensures Yoga's WASM is loaded before layout.
+  const { layoutWithYoga } = await import("./yogaLayout");
+
   let painter: Painter;
   try {
     painter = await Painter.create(canvas);
@@ -93,7 +96,7 @@ async function boot() {
       const root = rootElement();
       if (root) {
         const { cssWidth, cssHeight } = painter.size();
-        layout(root, cssWidth, cssHeight);
+        layoutWithYoga(root, cssWidth, cssHeight);
         painter.frame(collectRects(root, focusedId, camera), collectTexts(root, camera), collectGlass(root, camera));
         overlay.syncFromScene(collectSemantics(root, camera));
       }

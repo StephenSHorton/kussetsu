@@ -49,6 +49,16 @@ export function App() {
         ))}
       </view>
 
+      {/* Real flexbox (Yoga): a wrapping chip row — the hand-rolled engine could
+          NOT wrap. Constrained to 640px so chips flow onto multiple lines. */}
+      <view style={{ direction: "row", wrap: true, gap: 10, width: 640 }}>
+        {["map", "filter", "reduce", "window", "join", "split", "merge", "dedupe", "sort", "limit", "batch", "retry", "flatMap", "scan", "throttle"].map((t, i) => (
+          <view key={i} style={{ direction: "row", padding: 11, radius: 10, background: [0.15, 0.17, 0.25, 1] }}>
+            <text style={{ fontSize: 14, fontWeight: 600, color: [0.78, 0.84, 0.96, 1] }}>{t}</text>
+          </view>
+        ))}
+      </view>
+
       {/* Draggable refractive glass panel — grab it and shove it over the graph. */}
       <view
         glass={{ refraction: 0.13, frost: 5, tint: 0.07, rim: 30 }}

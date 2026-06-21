@@ -51,10 +51,17 @@ reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU 
   GPU-painted (the bit Zed's GPUI deferred and Flutter Web shipped).
 - The whole thing is ~600 lines and runs in current Chrome.
 
+## Closing the gaps (the spike → framework work)
+- **Layout — DONE.** The hand-rolled flexbox is replaced by **Yoga** (Facebook's
+  production flexbox, WASM) via `src/yogaLayout.ts`: rebuild a Yoga mirror of the
+  scene tree each pass, measure-funcs on text leaves, free recursively. The
+  `?react` demo shows real flex-wrap (which the toy couldn't do). `src/layout.ts`
+  remains only for `measureText`.
+
 ## What it deliberately does NOT (yet) solve
-Text shaping/IME/i18n, scrolling + clipping, a real layout engine (Yoga/Taffy),
-text selection, hit-testing for non-semantic regions, and a thousand edge cases.
-This is a feasibility spike, not a framework.
+Text shaping/IME/i18n, scrolling + clipping, glass-over-glass stacking, text
+selection, hit-testing for non-semantic regions, and a thousand edge cases.
+Still a feasibility spike, not a framework.
 
 ## Stress demo (the validation artifact)
 The default route is a **10,000-node graph**: every node is a GPU rect (ONE

@@ -12,6 +12,9 @@ export interface Style {
   height?: number;
   align?: "start" | "center" | "end"; // children, cross axis
   justify?: "start" | "center" | "end"; // children, main axis
+  wrap?: boolean; // flex-wrap (real layout only)
+  grow?: number; // flex-grow (real layout only)
+  minWidth?: number; // (real layout only)
   absolute?: { x: number; y: number }; // take out of flow, place at viewport x/y
   background?: RGBA;
   radius?: number;
