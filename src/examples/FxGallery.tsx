@@ -42,12 +42,15 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
 export const HOLOGRAPHIC = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let center = u.rect.xy + u.rect.zw * 0.5;
-  let dir = (u.ptr.xy - center) / max(u.rect.x + u.rect.z, 1.0);
-  let g = (uv.x + uv.y) * 1.5 + dot(u.ptr.xy - center, vec2f(0.01, 0.01)) + u.res.w * 0.05;
+  // Cursor offset RELATIVE TO THIS TILE (normalised by its size, softly clamped) — the foil
+  // tilts smoothly with the cursor like a real hologram, instead of racing the spectrum
+  // because the offset was scaled in raw screen pixels.
+  let tilt = clamp((u.ptr.xy - center) / max(u.rect.z, u.rect.w), vec2f(-1.2), vec2f(1.2));
+  let g = (uv.x + uv.y) * 1.5 + (tilt.x + tilt.y) * 0.5 + u.res.w * 0.08;
   var col = hsv2rgb(vec3f(fract(g * 0.5), 0.5, 1.0));
   let sheen = 1.0 - smoothstep(0.0, 0.08, abs(fract(g) - 0.5));
   col += vec3f(1.0) * sheen * 0.3;
-  col *= 0.6 + 0.4 * smoothstep(0.0, 1.0, uv.y + length(dir));
+  col *= 0.6 + 0.4 * smoothstep(-0.2, 1.2, uv.y + length(tilt) * 0.3);
   return vec4f(col, 1.0);
 }`;
 
