@@ -224,9 +224,16 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   };
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
+    // Canvas-relative coords from clientX/Y — NOT e.offsetX/Y, which is relative to the
+    // event target. The wheel can fire over an a11y proxy (a transparent <button>) on top
+    // of the canvas, and offsetX/Y would then be proxy-relative; clientX/Y - canvasRect is
+    // always canvas-relative. (The listener is on `host` so it catches those proxy events.)
+    const rect = canvas.getBoundingClientRect();
+    const ox = e.clientX - rect.left;
+    const oy = e.clientY - rect.top;
     for (let i = scrollRegions.length - 1; i >= 0; i--) {
       const r = scrollRegions[i];
-      if (e.offsetX >= r.rect[0] && e.offsetX <= r.rect[0] + r.rect[2] && e.offsetY >= r.rect[1] && e.offsetY <= r.rect[1] + r.rect[3]) {
+      if (ox >= r.rect[0] && ox <= r.rect[0] + r.rect[2] && oy >= r.rect[1] && oy <= r.rect[1] + r.rect[3]) {
         const cur = scrollY.get(r.id) ?? 0;
         scrollY.set(r.id, Math.min(r.maxScroll, Math.max(0, cur + e.deltaY / camera.scale)));
         container.dirty = true;
@@ -243,10 +250,10 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     }
     if (!opts.camera) return; // an app shouldn't zoom; only its lists scroll
     const ns = Math.min(3, Math.max(0.35, camera.scale * Math.exp(-e.deltaY * 0.0015)));
-    const wx = (e.offsetX - camera.tx) / camera.scale;
-    const wy = (e.offsetY - camera.ty) / camera.scale;
-    camera.tx = e.offsetX - wx * ns;
-    camera.ty = e.offsetY - wy * ns;
+    const wx = (ox - camera.tx) / camera.scale;
+    const wy = (oy - camera.ty) / camera.scale;
+    camera.tx = ox - wx * ns;
+    camera.ty = oy - wy * ns;
     camera.scale = ns;
     container.dirty = true;
   };
@@ -254,7 +261,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", endPan);
   canvas.addEventListener("pointercancel", endPan);
-  canvas.addEventListener("wheel", onWheel, { passive: false });
+  host.addEventListener("wheel", onWheel, { passive: false }); // on host so it also catches wheel over a11y proxies
 
   const rootElement = (): ElementNode | null =>
     (container.children.find((c) => c.kind === "element") as ElementNode | undefined) ?? null;
@@ -337,7 +344,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", endPan);
       canvas.removeEventListener("pointercancel", endPan);
-      canvas.removeEventListener("wheel", onWheel);
+      host.removeEventListener("wheel", onWheel);
       reactRoot.unmount();
       a11yHost.remove();
       editInput.remove();
