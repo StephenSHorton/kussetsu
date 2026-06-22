@@ -1,6 +1,7 @@
 // The host model of our custom React renderer. Plain JS objects — NOT the DOM.
 // One tree drives everything: the reconciler mutates it, layout annotates x/y/w/h,
 // the WebGPU painter draws it, the semantics overlay mirrors its interactive nodes.
+import type { ReactNode } from "react";
 
 export type RGBA = [number, number, number, number]; // 0..1 each, STRAIGHT alpha
 
@@ -11,7 +12,7 @@ export interface Style {
   width?: number | "stretch"; // fixed px, or fill parent cross-axis
   height?: number;
   align?: "start" | "center" | "end"; // children, cross axis
-  justify?: "start" | "center" | "end"; // children, main axis
+  justify?: "start" | "center" | "end" | "space-between" | "space-around" | "space-evenly"; // children, main axis
   wrap?: boolean; // flex-wrap (real layout only)
   grow?: number; // flex-grow (real layout only)
   shrink?: number; // flex-shrink (real layout only)
@@ -72,7 +73,7 @@ export interface NodeProps {
   material?: MaterialSpec; // present => filled by a custom WGSL fragment shader
   particles?: import("./particles").ParticleSpec; // present => emits an instanced particle field over this box
   postProcess?: "bloom"; // present => a full-screen effect is applied, but only WITHIN this node's box
-  children?: unknown;
+  children?: ReactNode;
 }
 
 // Pan/zoom view transform: screen = world * scale + (tx, ty). All CSS px.
@@ -150,9 +151,9 @@ declare global {
   namespace JSX {
     interface IntrinsicElements {
       // @ts-expect-error deliberately override SVG's <view> intrinsic with the Kussetsu host node
-      view: NodeProps & { children?: unknown };
+      view: NodeProps & { children?: ReactNode };
       // @ts-expect-error deliberately override SVG's <text> intrinsic with the Kussetsu host node
-      text: NodeProps & { children?: unknown };
+      text: NodeProps & { children?: ReactNode };
     }
   }
 }

@@ -28,7 +28,14 @@ function measure(text: string, s: Style): { w: number; h: number } {
 }
 
 const FLEX_DIR = { row: FlexDirection.Row, column: FlexDirection.Column } as const;
-const JUSTIFY = { start: Justify.FlexStart, center: Justify.Center, end: Justify.FlexEnd } as const;
+const JUSTIFY = {
+  start: Justify.FlexStart,
+  center: Justify.Center,
+  end: Justify.FlexEnd,
+  "space-between": Justify.SpaceBetween,
+  "space-around": Justify.SpaceAround,
+  "space-evenly": Justify.SpaceEvenly,
+} as const;
 const ALIGN = { start: Align.FlexStart, center: Align.Center, end: Align.FlexEnd } as const;
 
 function applyStyle(yn: YogaNode, s: Style = {}): void {

@@ -15,6 +15,11 @@ export { createGpuRoot, type GpuRoot, type GpuRootOptions } from "./runtime";
 // Authoring types (the <view>/<text> props + style). The global JSX declaration
 // for the host elements lives in ./scene and is pulled in by these re-exports.
 export type { Style, NodeProps, GlassSpec, MaterialSpec, Role, RGBA, Camera } from "./scene";
+export type { ParticleSpec } from "./particles";
+
+// Color helper: turn a hex / rgb() / named color into a Style-ready RGBA tuple
+// (0..1, straight alpha) — `background: rgba("#5C5CFF")`. Throws on an unparseable color.
+export { rgba } from "./color";
 
 // Live glass tuning (advanced): mutate glassTuning.params + flip .enabled to override
 // every glass panel at once; GLASS_DEFAULTS is the reset baseline.
