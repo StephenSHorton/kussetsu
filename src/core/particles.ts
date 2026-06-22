@@ -12,7 +12,8 @@ export interface ParticleSpec {
   gravity?: number; // px/s² (default 0 — a drifting field)
   speed?: number; // initial speed px/s (default 40)
   size?: number; // sprite diameter px (default 10)
-  pointer?: number; // cursor force: >0 repel, <0 attract, 0 none (default 900)
+  pointer?: number; // cursor repel strength (default 900); a moving cursor also flings particles
+  pointerRadius?: number; // cursor influence radius, px (default 340)
   drag?: number; // velocity damping per second (default 0.6)
   life?: number; // seconds (default 3)
 }
@@ -69,11 +70,15 @@ export class ParticleSystem {
   /** Advance the simulation by dt and rebuild the instance buffer. The sim runs in WORLD
    *  space (rect + pointer are world coords); `cam` maps each output position to screen px,
    *  so the field scrolls/zooms with the page (the painter's particle vpBuffer is identity). */
-  update(dt: number, rect: [number, number, number, number], pointer: [number, number] | null, spec: ParticleSpec, cam: { tx: number; ty: number; scale: number }): void {
+  update(dt: number, rect: [number, number, number, number], pointer: [number, number] | null, pointerVel: [number, number], spec: ParticleSpec, cam: { tx: number; ty: number; scale: number }): void {
     const g = spec.gravity ?? 0;
     const drag = spec.drag ?? 0.6;
     const pf = spec.pointer ?? 900;
     const size = spec.size ?? 10;
+    const R = spec.pointerRadius ?? 340;
+    const R2 = R * R;
+    const pvx = pointerVel[0];
+    const pvy = pointerVel[1];
     const damp = Math.max(0, 1 - drag * dt);
     const [rx, ry, rw, rh] = rect;
     for (let i = 0; i < this.count; i++) {
@@ -83,11 +88,16 @@ export class ParticleSystem {
         const dx = this.x[i] - pointer[0];
         const dy = this.y[i] - pointer[1];
         const d2 = dx * dx + dy * dy;
-        if (d2 < 300 * 300 && d2 > 1) {
-          const d = Math.sqrt(d2);
-          const f = (pf / (d + 18)) * dt; // closer = stronger
+        if (d2 < R2) {
+          const d = Math.sqrt(d2) || 1;
+          const fall = 1 - d / R; // 1 at the cursor, fading to 0 at the radius edge
+          const f = pf * fall * dt; // repel: push away from the cursor (graded across the radius)
           this.vx[i] += (dx / d) * f;
           this.vy[i] += (dy / d) * f;
+          // fling: a moving cursor drags nearby particles along its direction of travel, so
+          // sweeping stirs the field instead of only carving a static void.
+          this.vx[i] += pvx * fall * 4.0 * dt;
+          this.vy[i] += pvy * fall * 4.0 * dt;
         }
       }
       this.vy[i] += g * dt;

@@ -84,6 +84,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   let particlesPresent = false;
   const particleSystems = new Map<number, ParticleSystem>(); // persists per emitter node across frames
   let lastSimTime = performance.now();
+  let lastScreenPointer: [number, number] | null = null; // for cursor-velocity ("fling") on particles
 
   // Editable text: a transparent <input> overlaid on a field captures keyboard +
   // IME/composition (the browser does IME); the canvas renders the value + caret.
@@ -349,13 +350,24 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       const dt = Math.min(0.05, Math.max(0, (now - lastSimTime) / 1000)) || 0.016;
       lastSimTime = now;
       const ptr: [number, number] = [(lastPointer[0] - camera.tx) / camera.scale, (lastPointer[1] - camera.ty) / camera.scale];
+      // Cursor velocity from the SCREEN cursor (not world), so page scrolling — which moves the
+      // world pointer without the mouse moving — doesn't fake a fling. Convert to world (/scale).
+      let pvel: [number, number] = [0, 0];
+      if (lastScreenPointer) {
+        const vx = (lastPointer[0] - lastScreenPointer[0]) / dt / camera.scale;
+        const vy = (lastPointer[1] - lastScreenPointer[1]) / dt / camera.scale;
+        const mag = Math.hypot(vx, vy);
+        const MAX = 5000;
+        pvel = mag > MAX ? [(vx / mag) * MAX, (vy / mag) * MAX] : [vx, vy];
+      }
+      lastScreenPointer = [lastPointer[0], lastPointer[1]];
       const live = new Set<number>();
       let total = 0;
       for (const pn of pNodes) {
         live.add(pn.id);
         let sys = particleSystems.get(pn.id);
         if (!sys) particleSystems.set(pn.id, (sys = new ParticleSystem(pn.spec)));
-        sys.update(dt, pn.rect, ptr, pn.spec, camera);
+        sys.update(dt, pn.rect, ptr, pvel, pn.spec, camera);
         total += sys.count;
       }
       for (const id of [...particleSystems.keys()]) if (!live.has(id)) particleSystems.delete(id);

@@ -166,7 +166,7 @@ function ParticleSection({ vw }: { vw: number }) {
       {/* the emitter is an invisible box; the field is drawn (and camera-scrolled) by the painter.
           postProcess scopes the bloom to THIS box only — the rest of the page stays crisp. */}
       <view
-        particles={{ count: 1500, color: [1.0, 0.5, 0.16, 1], color2: [1.0, 0.82, 0.36, 1], size: 13, speed: 22, drag: 0.5, pointer: 3200, life: 4 }}
+        particles={{ count: 1500, color: [1.0, 0.5, 0.16, 1], color2: [1.0, 0.82, 0.36, 1], size: 13, speed: 22, drag: 0.6, pointer: 1900, pointerRadius: 360, life: 4 }}
         postProcess="bloom"
         style={{ absolute: { x: 0, y: top }, width: vw, height: sectionH - top }}
       />
