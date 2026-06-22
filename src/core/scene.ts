@@ -69,6 +69,7 @@ export interface NodeProps {
   onChange?: (v: string) => void; // editable field change
   glass?: GlassSpec; // present => painted as refractive glass
   material?: MaterialSpec; // present => filled by a custom WGSL fragment shader
+  particles?: import("./particles").ParticleSpec; // present => emits an instanced particle field over this box
   children?: unknown;
 }
 

@@ -8,6 +8,7 @@
 import type { ReactNode } from "react";
 import { createRoot } from "./hostConfig";
 import { Painter } from "./webgpu";
+import { ParticleSystem } from "./particles";
 import { SemanticsOverlay } from "./a11y";
 import {
   collectRects,
@@ -20,6 +21,7 @@ import {
   collectSelection,
   collectSelectable,
   selectionToText,
+  collectParticles,
   collectEditable,
   editCaretRect,
   type ScrollRegion,
@@ -37,6 +39,8 @@ export interface GpuRootOptions {
   pageScroll?: boolean;
   /** Make ALL text drag-selectable + copyable (Cmd/Ctrl+C), like a normal page. Default false. */
   textSelectable?: boolean;
+  /** Full-screen post-process over the composited scene. "bloom" makes bright pixels glow. */
+  postProcess?: "bloom" | null;
 }
 
 export interface GpuRoot {
@@ -53,7 +57,7 @@ export interface GpuRoot {
 /** Create a Kussetsu root that paints `canvas` on the GPU and bridges a11y + input.
  *  `canvas` must live inside a positioned parent (the overlay is placed over it). */
 export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootOptions = {}): Promise<GpuRoot> {
-  const opts = { camera: true, pageScroll: false, textSelectable: false, ...options };
+  const opts = { camera: true, pageScroll: false, textSelectable: false, postProcess: null as "bloom" | null, ...options };
 
   // Real layout (Yoga, WASM). Dynamic import keeps it out of bundles that lay nothing out.
   const { layoutWithYoga } = await import("./yogaLayout");
@@ -78,6 +82,9 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   let viewportH = 0;
   let lastPointer: [number, number] = [0, 0]; // css px, for shader materials
   let materialsPresent = false;
+  let particlesPresent = false;
+  const particleSystems = new Map<number, ParticleSystem>(); // persists per emitter node across frames
+  let lastSimTime = performance.now();
 
   // Editable text: a transparent <input> overlaid on a field captures keyboard +
   // IME/composition (the browser does IME); the canvas renders the value + caret.
@@ -332,10 +339,47 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     }
     const materials = collectMaterials(root, camera);
     materialsPresent = materials.length > 0;
-    painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera), fg, materials, { time: performance.now() / 1000, pointer: lastPointer });
+
+    // Particles: CPU-simulate each emitter, persisting state per node id, then concatenate
+    // into one instance buffer (world coords; the painter applies the camera + bloom).
+    const pNodes = collectParticles(root);
+    particlesPresent = pNodes.length > 0;
+    let particles: { data: Float32Array; count: number } | undefined;
+    if (pNodes.length) {
+      const now = performance.now();
+      const dt = Math.min(0.05, Math.max(0, (now - lastSimTime) / 1000)) || 0.016;
+      lastSimTime = now;
+      const ptr: [number, number] = [(lastPointer[0] - camera.tx) / camera.scale, (lastPointer[1] - camera.ty) / camera.scale];
+      const live = new Set<number>();
+      let total = 0;
+      for (const pn of pNodes) {
+        live.add(pn.id);
+        let sys = particleSystems.get(pn.id);
+        if (!sys) particleSystems.set(pn.id, (sys = new ParticleSystem(pn.spec)));
+        sys.update(dt, pn.rect, ptr, pn.spec, camera);
+        total += sys.count;
+      }
+      for (const id of [...particleSystems.keys()]) if (!live.has(id)) particleSystems.delete(id);
+      const data = new Float32Array(total * 8);
+      let off = 0;
+      for (const pn of pNodes) {
+        const sys = particleSystems.get(pn.id)!;
+        data.set(sys.inst, off);
+        off += sys.count * 8;
+      }
+      particles = { data, count: total };
+    }
+
+    painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera), fg, materials, {
+      time: performance.now() / 1000,
+      pointer: lastPointer,
+      particles,
+      post: opts.postProcess,
+    });
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
-    // animated materials drive a continuous repaint loop
-    if (materials.some((m) => m.animated)) container.dirty = true;
+    // animated materials + particles drive a continuous repaint loop
+    if (materialsPresent && materials.some((m) => m.animated)) container.dirty = true;
+    if (particlesPresent) container.dirty = true;
   }
 
   let rafId = 0;

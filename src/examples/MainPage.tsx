@@ -157,6 +157,21 @@ function GlassSection({ vw, t }: { vw: number; t: number }) {
   );
 }
 
+// ── Section 4: particles + bloom post-process ─────────────────────────────────────
+function ParticleSection({ vw }: { vw: number }) {
+  const sectionH = 580, top = 160;
+  return (
+    <view style={{ width: "stretch", height: sectionH, direction: "column", background: INK }}>
+      <Heading title="Particles + bloom" sub="Thousands of additive sprites, CPU-simulated and drawn in one instanced call — sweep your cursor through them. A full-screen bloom post-process blooms the bright pixels into glow (and lifts the shaders elsewhere on the page too)." />
+      {/* the emitter is an invisible box; the field is drawn (and camera-scrolled) by the painter */}
+      <view
+        particles={{ count: 1500, color: [1.0, 0.5, 0.16, 1], color2: [1.0, 0.82, 0.36, 1], size: 13, speed: 22, drag: 0.5, pointer: 3200, life: 4 }}
+        style={{ absolute: { x: 0, y: top }, width: vw, height: sectionH - top }}
+      />
+    </view>
+  );
+}
+
 // ── Section 4: migrate — code ↔ live result ───────────────────────────────────────
 // The card on the right is PLAIN HTML/Tailwind, transformed at build time by kussetsu/compat.
 function MigratedCard() {
@@ -247,6 +262,7 @@ export function MainPage() {
   // Heavy, animation-independent sections are memoized so the per-frame drift tick only
   // reconciles what actually moves.
   const fx = useMemo(() => <FxSection vw={vw} />, [vw]);
+  const particles = useMemo(() => <ParticleSection vw={vw} />, [vw]);
   const migrate = useMemo(() => <MigrateSection vw={vw} />, [vw]);
   return (
     <view style={{ direction: "column", width: vw, background: INK }}>
@@ -254,6 +270,7 @@ export function MainPage() {
       {fx}
       <SpringSection />
       <GlassSection vw={vw} t={t} />
+      {particles}
       {migrate}
       <Footer />
     </view>

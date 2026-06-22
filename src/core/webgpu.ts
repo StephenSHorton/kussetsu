@@ -58,6 +58,21 @@ export interface MaterialPanel {
   animated: boolean;
 }
 
+// A batch of particles to draw (built by the runtime's CPU simulation each frame).
+export interface ParticleBatch {
+  data: Float32Array; // [x,y,size,_][r,g,b,a] per particle, WORLD coords
+  count: number;
+}
+
+// Optional per-frame extras: animation time + pointer (for shader materials), a particle
+// batch, and a post-process effect over the whole composited scene.
+export interface FrameInfo {
+  time: number;
+  pointer: [number, number];
+  particles?: ParticleBatch;
+  post?: "bloom" | null;
+}
+
 // Glyph atlas: instanced per-glyph quads sampling a packed alpha atlas, tinted by
 // a per-instance color. Crisp + reuses each glyph once (vs a texture per string).
 const GLYPH_WGSL = /* wgsl */ `
@@ -307,6 +322,80 @@ const MATERIAL_TAIL = /* wgsl */ `
 }
 `;
 
+// Additive blend — particles ADD light, so overlaps brighten into glow (which bloom blooms).
+const ADD_BLEND: GPUBlendState = {
+  color: { srcFactor: "one", dstFactor: "one", operation: "add" },
+  alpha: { srcFactor: "one", dstFactor: "one", operation: "add" },
+};
+
+// Instanced particle sprites. Positions are WORLD coords (so the field scrolls/zooms with
+// the page via the same camera as rects); the fragment is a soft radial falloff.
+// Instance: [x,y,size,_][r,g,b,a].
+const PARTICLE_WGSL = /* wgsl */ `
+struct VP { res: vec2f, pad: vec2f, cam: vec4f };
+@group(0) @binding(0) var<uniform> vp: VP;
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f, @location(1) color: vec4f };
+const Q = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) posSize: vec4f, @location(1) color: vec4f) -> VSOut {
+  let q = Q[vi];
+  let world = posSize.xy + (q - vec2f(0.5)) * posSize.z;
+  let screen = world * vp.cam.z + vp.cam.xy;
+  let ndc = vec2f(screen.x / vp.res.x * 2.0 - 1.0, -(screen.y / vp.res.y * 2.0 - 1.0));
+  var o: VSOut; o.pos = vec4f(ndc, 0.0, 1.0); o.uv = q; o.color = color; return o;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  let d = length(in.uv - vec2f(0.5)) * 2.0;
+  let a = pow(max(0.0, 1.0 - d), 1.7) * in.color.a; // soft radial sprite
+  return vec4f(in.color.rgb * a, a); // premultiplied (additive blend)
+}
+`;
+
+// Bloom pass 1: extract bright pixels of the scene + box-blur, into a quarter-res target.
+const BLOOM_EXTRACT_WGSL = /* wgsl */ `
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var scene: texture_2d<f32>;
+struct BU { texel: vec2f, threshold: f32, spread: f32 };
+@group(0) @binding(2) var<uniform> u: BU;
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
+  var p = array<vec2f,3>(vec2f(-1,-1), vec2f(3,-1), vec2f(-1,3));
+  var o: VSOut; o.pos = vec4f(p[vi],0,1); o.uv = vec2f((p[vi].x+1.0)*0.5, (1.0-p[vi].y)*0.5); return o;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  var sum = vec3f(0.0); var wsum = 0.0;
+  for (var j = -3; j <= 3; j = j + 1) {
+    for (var i = -3; i <= 3; i = i + 1) {
+      let off = vec2f(f32(i), f32(j)) * u.texel * u.spread;
+      let c = textureSampleLevel(scene, samp, in.uv + off, 0.0).rgb;
+      let b = max(c - vec3f(u.threshold), vec3f(0.0)) / max(1.0 - u.threshold, 0.05);
+      let w = exp(-0.4 * f32(i * i + j * j));
+      sum = sum + b * w; wsum = wsum + w;
+    }
+  }
+  return vec4f(sum / wsum, 1.0);
+}
+`;
+
+// Bloom pass 2: scene + upsampled(blurred bright) -> canvas. Bilinear upsample smooths the
+// quarter-res bloom for free. Additive composite.
+const BLOOM_COMPOSITE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var scene: texture_2d<f32>;
+@group(0) @binding(2) var bloomTex: texture_2d<f32>;
+struct CU { intensity: f32, pad: vec3f };
+@group(0) @binding(3) var<uniform> u: CU;
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
+  var p = array<vec2f,3>(vec2f(-1,-1), vec2f(3,-1), vec2f(-1,3));
+  var o: VSOut; o.pos = vec4f(p[vi],0,1); o.uv = vec2f((p[vi].x+1.0)*0.5, (1.0-p[vi].y)*0.5); return o;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  let base = textureSampleLevel(scene, samp, in.uv, 0.0).rgb;
+  let bloom = textureSampleLevel(bloomTex, samp, in.uv, 0.0).rgb;
+  return vec4f(base + bloom * u.intensity, 1.0);
+}
+`;
+
 // [x,y,w,h][radius,_,_,_][r,g,b,a][clipX,clipY,clipW,clipH]
 export const FLOATS_PER_RECT = 16;
 const RECT_STRIDE = FLOATS_PER_RECT * 4;
@@ -384,6 +473,23 @@ export class Painter {
   private materialBuffers: GPUBuffer[] = [];
   private materialBGL!: GPUBindGroupLayout;
   private materialPL!: GPUPipelineLayout;
+
+  // Particles: one instanced additive draw for the whole field (shares the rect camera).
+  private particlePipeline!: GPURenderPipeline;
+  private particleVpBindGroup!: GPUBindGroup;
+
+  // Post-process: the whole scene composites into sceneTex, then bloom extracts bright
+  // pixels into a quarter-res brightTex and adds them back over the canvas.
+  private sceneTex: GPUTexture | null = null;
+  private sceneView: GPUTextureView | null = null;
+  private brightTex: GPUTexture | null = null;
+  private brightView: GPUTextureView | null = null;
+  private brightW = 0;
+  private brightH = 0;
+  private bloomExtractPipeline!: GPURenderPipeline;
+  private bloomCompositePipeline!: GPURenderPipeline;
+  private bloomExtractU!: GPUBuffer;
+  private bloomCompositeU!: GPUBuffer;
 
   private constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -500,6 +606,51 @@ export class Painter {
       ],
     });
     this.glyph2d = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+
+    // --- Particles: instanced additive sprites, sharing the rect camera (vpBuffer) ---
+    const particleModule = device.createShaderModule({ code: PARTICLE_WGSL });
+    this.particlePipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: particleModule,
+        entryPoint: "vs",
+        buffers: [
+          {
+            arrayStride: 32,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x4" }, // x,y,size,_
+              { shaderLocation: 1, offset: 16, format: "float32x4" }, // r,g,b,a
+            ],
+          },
+        ],
+      },
+      fragment: { module: particleModule, entryPoint: "fs", targets: [{ format, blend: ADD_BLEND }] },
+      primitive: { topology: "triangle-list" },
+    });
+    this.particleVpBindGroup = device.createBindGroup({
+      layout: this.particlePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }],
+    });
+
+    // --- Post-process bloom: extract+blur then additive composite ---
+    const exModule = device.createShaderModule({ code: BLOOM_EXTRACT_WGSL });
+    this.bloomExtractPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module: exModule, entryPoint: "vs" },
+      fragment: { module: exModule, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" },
+    });
+    const coModule = device.createShaderModule({ code: BLOOM_COMPOSITE_WGSL });
+    this.bloomCompositePipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module: coModule, entryPoint: "vs" },
+      fragment: { module: coModule, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" },
+    });
+    this.bloomExtractU = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    // 32 bytes: CU's `pad: vec3f` forces 16-byte alignment, so the struct rounds up to 32.
+    this.bloomCompositeU = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   }
 
   size(): { cssWidth: number; cssHeight: number } {
@@ -532,12 +683,21 @@ export class Painter {
     this.backdropView2 = this.backdropTex2.createView();
     this.backdropW = w;
     this.backdropH = h;
+    // Post-process targets: full-res scene + quarter-res bloom.
+    this.sceneTex?.destroy();
+    this.sceneTex = make();
+    this.sceneView = this.sceneTex.createView();
+    const bw = (this.brightW = Math.max(1, Math.floor(w / 4)));
+    const bh = (this.brightH = Math.max(1, Math.floor(h / 4)));
+    this.brightTex?.destroy();
+    this.brightTex = this.device.createTexture({ size: [bw, bh], format: this.format, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+    this.brightView = this.brightTex.createView();
   }
 
   // Composite glass over the backdrop with ping-pong, so each panel refracts the
   // accumulated result (glass-over-glass). Builds glass uniforms + bind groups.
-  private compositeGlass(encoder: GPUCommandEncoder, glass: GlassPanel[], fbw: number, fbh: number, cssWidth: number, cssHeight: number, dpr: number) {
-    const canvasView = this.context.getCurrentTexture().createView();
+  private compositeGlass(encoder: GPUCommandEncoder, glass: GlassPanel[], fbw: number, fbh: number, cssWidth: number, cssHeight: number, dpr: number, target: GPUTextureView) {
+    const canvasView = target;
     const clear = { r: 0, g: 0, b: 0, a: 0 };
 
     while (this.glassBuffers.length < glass.length) {
@@ -703,12 +863,11 @@ export class Painter {
 
   // Draw custom-shader material quads onto the canvas (after glass, before foreground),
   // each with standard uniforms (rect, viewport, dpr, time, pointer) + the backdrop texture.
-  private drawMaterials(encoder: GPUCommandEncoder, materials: MaterialPanel[], cssW: number, cssH: number, dpr: number, time: number, pointer: [number, number]) {
+  private drawMaterials(encoder: GPUCommandEncoder, materials: MaterialPanel[], cssW: number, cssH: number, dpr: number, time: number, pointer: [number, number], target: GPUTextureView) {
     while (this.materialBuffers.length < materials.length) {
       this.materialBuffers.push(this.device.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     }
-    const view = this.context.getCurrentTexture().createView();
-    const pass = encoder.beginRenderPass({ colorAttachments: [{ view, loadOp: "load", storeOp: "store" }] });
+    const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target, loadOp: "load", storeOp: "store" }] });
     materials.forEach((m, i) => {
       const buf = this.materialBuffers[i];
       const a = new Float32Array(32);
@@ -729,7 +888,46 @@ export class Painter {
     pass.end();
   }
 
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: { time: number; pointer: [number, number] }) {
+  // One instanced additive draw for the whole particle field (into an existing pass).
+  private drawParticles(pass: GPURenderPassEncoder, batch: ParticleBatch) {
+    const floats = batch.count * 8;
+    const buf = this.device.createBuffer({ size: floats * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(buf, 0, batch.data, 0, floats);
+    pass.setPipeline(this.particlePipeline);
+    pass.setBindGroup(0, this.particleVpBindGroup);
+    pass.setVertexBuffer(0, buf);
+    pass.draw(6, batch.count);
+    this.pendingBuffers.push(buf);
+  }
+
+  // Bloom post-process: extract+blur the scene's bright pixels to a quarter-res texture,
+  // then add them back over the canvas. Two passes, one small texture.
+  private bloom(encoder: GPUCommandEncoder, canvasView: GPUTextureView, fbw: number, fbh: number) {
+    const THRESHOLD = 0.6, SPREAD = 2.2, INTENSITY = 1.2;
+    this.device.queue.writeBuffer(this.bloomExtractU, 0, new Float32Array([1 / fbw, 1 / fbh, THRESHOLD, SPREAD]));
+    const exBG = this.device.createBindGroup({
+      layout: this.bloomExtractPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: this.sceneView! }, { binding: 2, resource: { buffer: this.bloomExtractU } }],
+    });
+    const pe = encoder.beginRenderPass({ colorAttachments: [{ view: this.brightView!, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }] });
+    pe.setPipeline(this.bloomExtractPipeline);
+    pe.setBindGroup(0, exBG);
+    pe.draw(3);
+    pe.end();
+
+    this.device.queue.writeBuffer(this.bloomCompositeU, 0, new Float32Array([INTENSITY, 0, 0, 0]));
+    const coBG = this.device.createBindGroup({
+      layout: this.bloomCompositePipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: this.sceneView! }, { binding: 2, resource: this.brightView! }, { binding: 3, resource: { buffer: this.bloomCompositeU } }],
+    });
+    const pc = encoder.beginRenderPass({ colorAttachments: [{ view: canvasView, clearValue: { r: 0, g: 0, b: 0, a: 1 }, loadOp: "clear", storeOp: "store" }] });
+    pc.setPipeline(this.bloomCompositePipeline);
+    pc.setBindGroup(0, coBG);
+    pc.draw(3);
+    pc.end();
+  }
+
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -742,6 +940,11 @@ export class Painter {
     const fgBuffer = fg ? this.uploadRects(fg.rects) : null;
 
     const encoder = this.device.createCommandEncoder();
+    const canvasView = this.context.getCurrentTexture().createView();
+    // With post-process on, the whole scene composites into sceneTex; bloom then writes the
+    // canvas. Without it, everything renders straight to the canvas as before.
+    const post = info?.post === "bloom";
+    const finalView = post ? this.sceneView! : canvasView;
 
     // PASS 1 — non-glass content (rects + glyphs) -> backdrop texture
     const p1 = encoder.beginRenderPass({
@@ -756,20 +959,19 @@ export class Painter {
     this.drawGlyphs(p1, texts); // Gap B: per-glyph atlas instances
     p1.end();
 
-    // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass).
-    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
+    // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass) -> finalView.
+    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr, finalView);
 
-    // PASS 2.5 — custom shader materials onto the canvas (can sample the backdrop).
+    // PASS 2.5 — custom shader materials (can sample the backdrop).
     if (materials && materials.length) {
-      this.drawMaterials(encoder, materials, cssWidth, cssHeight, dpr, info?.time ?? 0, info?.pointer ?? [0, 0]);
+      this.drawMaterials(encoder, materials, cssWidth, cssHeight, dpr, info?.time ?? 0, info?.pointer ?? [0, 0], finalView);
     }
 
     // PASS 3 — foreground: a glass node's children, drawn ON the glass (crisp, not
-    // refracted by it). getCurrentTexture() returns the same canvas texture as the
-    // glass pass, so loadOp "load" preserves what compositeGlass drew.
+    // refracted by it). loadOp "load" preserves what the prior passes drew into finalView.
     if (fg && (fgBuffer || fg.texts.length)) {
       const p3 = encoder.beginRenderPass({
-        colorAttachments: [{ view: this.context.getCurrentTexture().createView(), loadOp: "load", storeOp: "store" }],
+        colorAttachments: [{ view: finalView, loadOp: "load", storeOp: "store" }],
       });
       if (fgBuffer) {
         p3.setPipeline(this.rectPipeline);
@@ -780,6 +982,16 @@ export class Painter {
       this.drawGlyphs(p3, fg.texts);
       p3.end();
     }
+
+    // PASS 4 — particles (additive, on top of the scene).
+    if (info?.particles && info.particles.count > 0) {
+      const pp = encoder.beginRenderPass({ colorAttachments: [{ view: finalView, loadOp: "load", storeOp: "store" }] });
+      this.drawParticles(pp, info.particles);
+      pp.end();
+    }
+
+    // PASS 5 — post-process bloom: sceneTex -> canvas.
+    if (post) this.bloom(encoder, canvasView, fbw, fbh);
 
     this.device.queue.submit([encoder.finish()]);
     instanceBuffer?.destroy();
@@ -823,7 +1035,7 @@ export class Painter {
     p1.end();
 
     // composite glass over the backdrop (ping-pong = glass-over-glass).
-    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr);
+    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr, this.context.getCurrentTexture().createView());
     this.device.queue.submit([encoder.finish()]);
     for (const b of this.pendingBuffers) b.destroy();
     this.pendingBuffers.length = 0;

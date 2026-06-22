@@ -57,5 +57,5 @@ if (params.has("stress")) {
 } else if (params.has("showcase")) {
   boot(Showcase, { camera: false }); // the old tabbed showcase
 } else {
-  boot(MainPage, { camera: false, pageScroll: true, textSelectable: true }); // default: the one-page scrolling showcase
+  boot(MainPage, { camera: false, pageScroll: true, textSelectable: true, postProcess: "bloom" }); // default: the one-page scrolling showcase
 }

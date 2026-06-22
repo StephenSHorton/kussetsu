@@ -2,6 +2,7 @@
 // pan/zoom CAMERA (world -> screen), per-region SCROLL offsets, and CLIP rects.
 // Pre-order = parents before children (paint order) and reading order (AT).
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene";
+import type { ParticleSpec } from "./particles";
 import type { ClipRect, GlassPanel, MaterialPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { measureWidth, selectionRects } from "./text";
@@ -335,6 +336,23 @@ export function collectSelectable(root: ElementNode, cam: Camera, all = false): 
     if (n.type === "text" && (all || n.props.selectable) && n.wrapped) {
       out.push({ id: n.id, x: n.x * cam.scale + cam.tx, y: n.y * cam.scale + cam.ty, w: n.w * cam.scale, h: n.h * cam.scale, node: n, scale: cam.scale });
     }
+    for (const c of n.children) if (c.kind === "element") walk(c);
+  };
+  walk(root);
+  return out;
+}
+
+export interface ParticleNode {
+  id: number;
+  rect: [number, number, number, number]; // WORLD coords — the particle shader applies the camera
+  spec: ParticleSpec;
+}
+
+/** Particle emitter nodes (props.particles). World-space; the runtime simulates each. */
+export function collectParticles(root: ElementNode): ParticleNode[] {
+  const out: ParticleNode[] = [];
+  const walk = (n: ElementNode) => {
+    if (n.props.particles) out.push({ id: n.id, rect: [n.x, n.y, n.w, n.h], spec: n.props.particles });
     for (const c of n.children) if (c.kind === "element") walk(c);
   };
   walk(root);
