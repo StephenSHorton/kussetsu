@@ -26,6 +26,12 @@ void mat;
 void bloom;
 // per-side padding + gap axes
 const card: Style = { paddingX: 16, paddingY: 8, paddingTop: 12, rowGap: 6, columnGap: 10 };
+// percentage / proportional sizing
+const fluid: Style = { width: "50%", height: "100%", maxWidth: "80%", minHeight: "10%", basis: "33%", grow: 1 };
+const px: Style = { width: "stretch", height: 200 }; // px + "stretch" (cross-axis) still valid
+void card;
+void fluid;
+void px;
 void bar;
 void headingProps;
 void card;
@@ -124,6 +130,8 @@ const badColor = <Text style={{ color: "red" }}>x</Text>;
 const badProp = <View notARealProp />;
 // @ts-expect-error rgba() takes a string, not a number.
 const badRgba = rgba(0xff0000);
+// @ts-expect-error a Size is px (number), "NN%", or (width) "stretch" — not "50px".
+const badSize = <View style={{ width: "50px" }} />;
 // @ts-expect-error postProcess only accepts the "bloom" literal.
 const badPost = <View postProcess="glow" />;
 void badBg;
@@ -131,4 +139,5 @@ void badJustify;
 void badColor;
 void badProp;
 void badRgba;
+void badSize;
 void badPost;

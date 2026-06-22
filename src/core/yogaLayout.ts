@@ -7,7 +7,7 @@
 // (the module top-level-awaits the WASM); enums are named exports.
 import Yoga, { Align, Direction, Edge, FlexDirection, Gutter, Justify, MeasureMode, PositionType, Wrap } from "yoga-layout";
 import type { Node as YogaNode } from "yoga-layout";
-import { type ElementNode, type Style, textOf } from "./scene";
+import { type ElementNode, type Size, type Style, textOf } from "./scene";
 import { measureText } from "./layout";
 import { wrapText } from "./text";
 
@@ -38,6 +38,12 @@ const JUSTIFY = {
 } as const;
 const ALIGN = { start: Align.FlexStart, center: Align.Center, end: Align.FlexEnd } as const;
 
+// Apply a Size (a px number or a "NN%" string) to a Yoga dimension via its px / percent setters.
+function setSize(v: Size | undefined, px: (n: number) => void, pct: (n: number) => void): void {
+  if (typeof v === "number") px(v);
+  else if (typeof v === "string") pct(parseFloat(v));
+}
+
 function applyStyle(yn: YogaNode, s: Style = {}): void {
   // Defaults match the old hand-rolled engine: column, main/cross start (NOT
   // Yoga's default Stretch) — children fill cross-axis only via width:"stretch".
@@ -59,13 +65,18 @@ function applyStyle(yn: YogaNode, s: Style = {}): void {
   if (s.rowGap != null) yn.setGap(Gutter.Row, s.rowGap);
   if (s.columnGap != null) yn.setGap(Gutter.Column, s.columnGap);
 
+  // Sizing: a px number, a "NN%" of the parent, or (width only) "stretch" = fill the cross axis.
   if (typeof s.width === "number") yn.setWidth(s.width);
   else if (s.width === "stretch") yn.setAlignSelf(Align.Stretch);
-  if (typeof s.height === "number") yn.setHeight(s.height);
+  else if (typeof s.width === "string") yn.setWidthPercent(parseFloat(s.width));
+  setSize(s.height, (n) => yn.setHeight(n), (n) => yn.setHeightPercent(n));
+  setSize(s.basis, (n) => yn.setFlexBasis(n), (n) => yn.setFlexBasisPercent(n));
+  setSize(s.minWidth, (n) => yn.setMinWidth(n), (n) => yn.setMinWidthPercent(n));
+  setSize(s.maxWidth, (n) => yn.setMaxWidth(n), (n) => yn.setMaxWidthPercent(n));
+  setSize(s.minHeight, (n) => yn.setMinHeight(n), (n) => yn.setMinHeightPercent(n));
+  setSize(s.maxHeight, (n) => yn.setMaxHeight(n), (n) => yn.setMaxHeightPercent(n));
   if (typeof s.grow === "number") yn.setFlexGrow(s.grow);
   if (typeof s.shrink === "number") yn.setFlexShrink(s.shrink);
-  if (typeof s.minWidth === "number") yn.setMinWidth(s.minWidth);
-  if (typeof s.maxWidth === "number") yn.setMaxWidth(s.maxWidth);
 
   if (s.absolute) {
     yn.setPositionType(PositionType.Absolute);

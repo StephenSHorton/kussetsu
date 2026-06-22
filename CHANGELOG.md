@@ -7,6 +7,10 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **Percentage / proportional sizing.** `width` / `height` / `minWidth` / `maxWidth` /
+  `minHeight` / `maxHeight` and a new `basis` (flex-basis) now accept a `"NN%"` string (a
+  percentage of the parent) in addition to px — wired to Yoga's percent dimensions. `width`
+  still also takes `"stretch"` (cross-axis fill). Exported a `Size` type.
 - **Shader/effect docs + feedback.** The WGSL `material` contract (the `fn material` signature,
   in-scope helpers, and the `uniforms` → `u.c0..u.c3` lane mapping) is now full JSDoc on
   `MaterialSpec` (shows on hover), and `particles` / `postProcess` are documented in the README.
