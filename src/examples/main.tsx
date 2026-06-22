@@ -10,7 +10,6 @@ import { bootCommandMenu } from "./CommandMenuDemo";
 import { FxGallery } from "./FxGallery";
 import { MorphDemo } from "./MorphDemo";
 import { Showcase } from "./Showcase";
-import { MainPage } from "./MainPage";
 import { MarketingPage, BG_LIGHTS } from "./MarketingPage";
 import { runStress } from "./stress";
 
@@ -39,14 +38,12 @@ async function boot(Component: ComponentType, opts: GpuRootOptions, devPanel = t
   }
 }
 
-// Default: the glass chat app. `?stress` = 10k-node demo, `?demo` = kitchen sink,
-// `?compat` = the migration on-ramp, `?menu` = the ⌘K glass command palette over a
-// live feed ("impossible in CSS").
+// Default: the marketing site (the capability demos are folded into the bottom of it now).
+// `?stress` = 10k-node demo, `?kitchen` = kitchen sink, `?compat` = the migration on-ramp,
+// `?menu` = the ⌘K glass command palette over a live feed ("impossible in CSS").
 const params = new URLSearchParams(location.search);
 if (params.has("stress")) {
   runStress(canvas).catch(showError);
-} else if (params.has("demo")) {
-  boot(MainPage, { camera: false, pageScroll: true, textSelectable: true }); // the capability showcase
 } else if (params.has("kitchen")) {
   boot(App, { camera: false, pageScroll: true }); // kitchen-sink demo
 } else if (params.has("compat")) {

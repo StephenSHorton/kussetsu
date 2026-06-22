@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useSpring } from "../core/useSpring";
 import type { MaterialSpec, RGBA } from "../core/scene";
 import { AURORA, PLASMA, HOLOGRAPHIC, RIPPLE, LOUPE } from "./FxGallery";
@@ -24,17 +24,6 @@ function Heading({ title, sub }: { title: string; sub: string }) {
 }
 
 // ── Hero ────────────────────────────────────────────────────────────────────────
-function Header({ vw }: { vw: number }) {
-  return (
-    <view style={{ width: "stretch", height: 440, direction: "column", align: "center", justify: "center", gap: 20, padding: 40 }}>
-      <text role="heading" level={1} style={{ fontSize: 64, fontWeight: 800, color: WHITE }}>Kussetsu</text>
-      <text style={{ maxWidth: 800, fontSize: 19, fontWeight: 500, color: MUTED }}>
-        For thirty years HTML and CSS carried the web to every corner of the earth — they gave us the map, and we honor it. Here every pixel is painted on the GPU; the DOM stays only as an invisible layer for accessibility and input. The canvas is the page now, and imagination arrives in full light. ↓
-      </text>
-    </view>
-  );
-}
-
 // ── Section 1: shader materials (the hero capability) ─────────────────────────────
 interface Tile { name: string; note: string; spec?: MaterialSpec; glass?: boolean; }
 const FX_TILES: Tile[] = [
@@ -268,18 +257,8 @@ function MigrateSection({ vw }: { vw: number }) {
   );
 }
 
-function Footer() {
-  return (
-    <view style={{ width: "stretch", height: 150, direction: "column", align: "center", justify: "center", gap: 6 }}>
-      <text style={{ fontSize: 15, fontWeight: 600, color: MUTED }}>Real React · a custom reconciler · WebGPU · an invisible, accessible DOM</text>
-      <text style={{ fontSize: 13, color: FAINT }}>Every pixel above is WGSL output on a single canvas.</text>
-    </view>
-  );
-}
-
-/** The five capability sections, without page chrome — reused by the standalone demo route AND
- *  appended to the bottom of the marketing page. Heavy sections are memoized so the per-frame
- *  drift tick only reconciles the animated glass. */
+/** The five capability sections, without page chrome — appended to the bottom of the marketing
+ *  page. Heavy sections are memoized so the per-frame drift tick only reconciles the animated glass. */
 export function DemoSections({ vw, t }: { vw: number; t: number }) {
   const fx = useMemo(() => <FxSection vw={vw} />, [vw]);
   const springs = useMemo(() => <SpringSection />, []);
@@ -296,23 +275,3 @@ export function DemoSections({ vw, t }: { vw: number; t: number }) {
   );
 }
 
-export function MainPage() {
-  const [, force] = useState(0);
-  const [t, setT] = useState(0);
-  useEffect(() => {
-    let raf = 0;
-    const loop = (now: number) => { setT(now / 1000); raf = requestAnimationFrame(loop); };
-    raf = requestAnimationFrame(loop);
-    const onResize = () => force((x) => x + 1);
-    window.addEventListener("resize", onResize);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
-  }, []);
-  const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
-  return (
-    <view style={{ direction: "column", width: vw, background: INK }}>
-      <Header vw={vw} />
-      <DemoSections vw={vw} t={t} />
-      <Footer />
-    </view>
-  );
-}

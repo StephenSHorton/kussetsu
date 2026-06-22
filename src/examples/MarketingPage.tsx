@@ -6,7 +6,7 @@ import { DemoSections } from "./MainPage";
 // Kussetsu's marketing site, built IN Kussetsu — DARK: a black field lit by drifting colorful
 // gradient lights (a full-screen WGSL background the glass actually REFRACTS), white type, and
 // glass throughout: a fixed frosted nav, feature cards, and one empty pane that glides across
-// so you watch the refraction track the light. Route "/" (the capability demo lives at ?demo).
+// so you watch the refraction track the light, then the capability demos folded in below.
 
 const REPO = "https://github.com/StephenSHorton/kussetsu";
 const NAV_H = 66;
@@ -152,9 +152,6 @@ function cubeUniforms(): number[] {
   return [glassTuning.enabled ? 1 : 0, p.refraction, p.dispersion, p.tint, p.specular, p.rim, p.brighten, p.blur, p.tintColor[0], p.tintColor[1], p.tintColor[2], 0];
 }
 
-function goDemo() {
-  window.location.search = "?demo";
-}
 function goRepo() {
   window.open(REPO, "_blank", "noopener");
 }
@@ -177,7 +174,6 @@ function Nav({ vw }: { vw: number }) {
       </view>
       <view style={{ grow: 1 }} />
       <view style={{ direction: "row", align: "center", gap: 6 }}>
-        <NavLink label="Demo" onActivate={goDemo} />
         <NavLink label="GitHub" onActivate={goRepo} />
         <view role="button" ariaLabel="Get started" onActivate={goRepo} style={{ height: 38, direction: "row", align: "center", justify: "center", padding: 18, radius: 11, cornerSmoothing: 0.6, background: ACCENT }}>
           <text style={{ fontSize: 15, fontWeight: 700, color: WHITE }}>Get started</text>
@@ -227,7 +223,6 @@ function Hero({ vw, vh }: { vw: number; vh: number }) {
           <text style={{ fontSize: 19, fontWeight: 500, color: SLATE }}>Kussetsu renders your React with WebGPU — refraction, shaders, real spring physics — while the DOM stays a clean, invisible layer for accessibility. Glass bending live light, the way CSS never could.</text>
           <view style={{ direction: "row", gap: 14, align: "center" }}>
             <PillButton label="Get started" fill={ACCENT} onActivate={goRepo} />
-            <PillButton label="See the live demo" glass onActivate={goDemo} />
           </view>
         </view>
       </view>
@@ -342,7 +337,6 @@ function GetStarted({ vw }: { vw: number }) {
       {/* CTAs — the Hero pairing */}
       <view style={{ direction: "row", gap: 14, align: "center" }}>
         <PillButton label="Get started" fill={ACCENT} onActivate={goRepo} />
-        <PillButton label="See the live demo" glass onActivate={goDemo} />
       </view>
     </view>
   );
@@ -355,7 +349,6 @@ function Footer({ vw }: { vw: number }) {
       <text style={{ fontSize: 13, color: FAINT }}>This page is built in Kussetsu — every pixel is WGSL output on one canvas.</text>
       <view style={{ direction: "row", gap: 8, align: "center" }}>
         <NavLink label="GitHub" onActivate={goRepo} />
-        <NavLink label="Live demo" onActivate={goDemo} />
       </view>
     </view>
   );
