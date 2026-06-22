@@ -24,13 +24,31 @@ focus just works.
 npm i kussetsu
 ```
 
-`react` (>=18.2) is a peer dependency. You need a **WebGPU-capable browser**
-(Chrome 113+, Edge 113+, Safari 18+, recent Firefox).
+`react` **18** (`>=18.2`, not yet 19) is a peer dependency. You need a
+**WebGPU-capable browser** (Chrome 113+, Edge 113+, Safari 18+, recent Firefox).
 
 ## Quick start
 
 You write ordinary React. The only new vocabulary is two host elements —
 `<view>` (a box) and `<text>` (a string) — plus a GPU root to mount onto.
+
+First, the page. The `<canvas>` needs a **non-zero CSS size** inside a
+**positioned parent** — Kussetsu sizes the framebuffer from the canvas's CSS box and
+lays the invisible accessibility/input overlay directly over it. Don't set the canvas
+`width`/`height` HTML attributes; Kussetsu owns the framebuffer size + devicePixelRatio.
+
+```html
+<div id="stage">
+  <canvas id="app"></canvas>
+</div>
+
+<style>
+  #stage { position: relative; width: 100vw; height: 100vh; }
+  #app   { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+</style>
+```
+
+Then the React:
 
 ```tsx
 import { createGpuRoot } from "kussetsu";
@@ -44,17 +62,29 @@ function App() {
   );
 }
 
-const canvas = document.querySelector("canvas")!; // must sit in a positioned parent
-const root = await createGpuRoot(canvas);
-root.render(<App />);
+async function boot() {
+  const canvas = document.querySelector<HTMLCanvasElement>("#app")!;
+  try {
+    const root = await createGpuRoot(canvas);
+    root.render(<App />);
+  } catch (err) {
+    // No WebGPU (Firefox without the flag, old Safari, headless CI) => createGpuRoot
+    // REJECTS. There's no automatic fallback — render your own HTML instead.
+    canvas.insertAdjacentHTML("afterend", "<p>This app needs a WebGPU-capable browser.</p>");
+    console.error(err);
+  }
+}
+boot();
 ```
 
 That's the whole API surface to get pixels on screen: `createGpuRoot(canvas, opts?)`
 returns a `GpuRoot` with `render()`, `frame()`, `requestRender()`, and `destroy()`.
-Importing `kussetsu` also pulls in the global JSX typings for `<view>` / `<text>`.
+Importing `kussetsu` also pulls in the JSX typings for `<view>` / `<text>` (see the
+type-checking caveat under [Status](#status--honest)).
 
-The `<canvas>` must live inside a **positioned parent** — Kussetsu lays the
-invisible accessibility/input overlay directly over the canvas.
+> The mount is wrapped in `boot()` rather than a bare top-level `await` so it compiles
+> on every toolchain (CRA/Jest/older targets don't allow top-level `await`). In a React
+> app, run the same `createGpuRoot` → `render` → `destroy` cycle from a `useEffect`.
 
 ### Options
 
@@ -71,9 +101,11 @@ invisible accessibility/input overlay directly over the canvas.
 Any node with `overflow: "scroll"` is a scroll region: it's wheel- **and** drag/touch-scrollable
 with inertia. The canvas sets `touch-action: none` so Kussetsu owns the gesture on touch devices.
 
-Also exported: `useSpring` (interruptible spring-physics animation), and the live
-`glassTuning` object (`glassTuning.params` + `glassTuning.enabled` to override every
-glass panel at once, with `GLASS_DEFAULTS` as the reset baseline).
+Also exported: `rgba("#5C5CFF", alpha?)` (turn a hex / `rgb()` / named color into a
+Style-ready `RGBA` tuple — colors are `[r, g, b, a]` 0..1, so this saves the by-hand
+math), `useSpring` (interruptible spring-physics animation), and the live `glassTuning`
+object (`glassTuning.params` + `glassTuning.enabled` to override every glass panel at
+once, with `GLASS_DEFAULTS` as the reset baseline).
 
 ## How it works
 
@@ -150,15 +182,23 @@ library.
 
 ## Status — honest
 
-Kussetsu is **early** (`0.1.x`, not yet published to npm at the time of writing).
-It is a real renderer with a real published-library shape, not a finished framework.
-Known caveats:
+Kussetsu is **early** — `0.1.x`, published on npm (`npm i kussetsu`). It is a real
+renderer with a real published-library shape, not a finished framework. Known caveats:
 
-- **WebGPU-only.** No software/WebGL fallback — unsupported browsers see nothing.
-- **Type-checking is loose.** The build emits declarations with `skipLibCheck`
-  (the react-reconciler typings aren't fully validated), and `<view>`/`<text>`
-  deliberately shadow SVG's intrinsic elements — so consumers should keep
-  `skipLibCheck: true` (the default in Vite / Next / CRA).
+- **WebGPU-only.** No software/WebGL fallback. On an unsupported browser
+  `createGpuRoot` **rejects** (it does *not* silently no-op) — `await` it in a
+  `try/catch` and render your own HTML fallback (see [Quick start](#quick-start)).
+- **ESM-only.** No CommonJS build — use a modern ESM bundler (Vite / Next / etc.).
+- **React 18 only.** The reconciler is 18-era; the peer range is `^18.2.0` (no 19 yet).
+- **Host-element types collide with SVG.** `<view>`/`<text>` deliberately shadow SVG's
+  intrinsic elements, but the global JSX augmentation currently loses to React's SVG
+  typings, so those props don't type-check for consumers yet (the renderer runs fine —
+  esbuild/Vite strip types). Fix tracked in
+  [#2](https://github.com/StephenSHorton/kussetsu/issues/2). Separately, the build emits
+  declarations with `skipLibCheck` because the react-reconciler typings aren't fully
+  validated — keep `skipLibCheck: true` (the Vite / Next / CRA default). *Note:*
+  `skipLibCheck` only silences errors inside `.d.ts` files; it does **not** suppress the
+  SVG-collision errors raised in your own `.tsx` — that needs the #2 fix.
 - **Text is browser-shaped.** LTR only — bidi / complex-script (RTL, Arabic, Indic)
   caret + selection is out of scope, and the glyph atlas softens past its base size
   (no MSDF yet, so it isn't crisp at *arbitrary* zoom).

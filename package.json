@@ -1,7 +1,7 @@
 {
   "name": "kussetsu",
   "version": "0.1.0",
-  "description": "Kussetsu — React-authored UI painted entirely on the GPU (WebGPU), with the DOM as an invisible accessibility + input layer.",
+  "description": "R3F for 2D UI — React-authored interface painted entirely on the GPU (WebGPU/WGSL), with the DOM as an invisible accessibility + input layer.",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -14,7 +14,8 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "vite",
@@ -25,19 +26,30 @@
   },
   "keywords": [
     "webgpu",
+    "wgsl",
     "react",
     "react-reconciler",
+    "react-three-fiber",
+    "r3f",
     "renderer",
     "ui",
+    "webgpu-ui",
     "gpu",
     "glass",
+    "glassmorphism",
     "shaders"
   ],
   "author": "Stephen Horton",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/StephenSHorton/kussetsu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/StephenSHorton/kussetsu/issues"
   },
   "homepage": "https://stephenshorton.github.io/kussetsu/",
   "peerDependencies": {

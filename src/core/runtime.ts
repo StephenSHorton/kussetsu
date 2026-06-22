@@ -70,6 +70,29 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   const container: Container = { kind: "container", canvas, children: [], dirty: true };
   let focusedId: number | null = null;
 
+  // Dev-mode diagnostics for the two silent first-run footguns: a 0-sized canvas paints
+  // nothing (we size the framebuffer from the canvas's CSS box), and a non-positioned
+  // parent misaligns the invisible a11y/input overlay (placed position:absolute over the
+  // canvas). One-time, at mount. The literal `process.env.NODE_ENV` lets an app bundler
+  // strip this in production builds (React's pattern); it's untyped in this browser lib.
+  // @ts-expect-error `process` is bundler-injected, not typed here.
+  const isProd = typeof process !== "undefined" && process.env && process.env.NODE_ENV === "production";
+  if (!isProd) {
+    const r = canvas.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1)
+      console.warn(
+        `kussetsu: the <canvas> has ~0 CSS size (${Math.round(r.width)}×${Math.round(r.height)}). ` +
+          "Kussetsu sizes the framebuffer from the canvas's CSS box, so give it a real width/height in CSS " +
+          "(don't set the width/height HTML attributes) — nothing paints until it has a non-zero size.",
+      );
+    if (getComputedStyle(host).position === "static")
+      console.warn(
+        "kussetsu: the canvas's parent is position:static. The invisible accessibility/input overlay is " +
+          "placed over the canvas with position:absolute, so clicks + focus will misalign. Make the parent " +
+          "position:relative (or absolute/fixed).",
+      );
+  }
+
   // The invisible semantics + input overlay, placed exactly over the canvas.
   const a11yHost = document.createElement("div");
   Object.assign(a11yHost.style, { position: "absolute", inset: "0", pointerEvents: "none" } as Partial<CSSStyleDeclaration>);
