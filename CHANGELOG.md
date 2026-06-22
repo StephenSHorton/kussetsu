@@ -7,6 +7,10 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`useSpring` vector / RGBA overload.** `useSpring` now also animates a `number[]` / `RGBA`
+  (each component its own spring, shared config), so you can spring a color or an (x, y) in one
+  hook — `useSpring(rgba("#5C5CFF"))`. The scalar `number` form is unchanged.
+
 - **R3F-style hooks** for components inside a Kussetsu tree: `useFrame((dt) => …)` (per-frame
   callback; the loop runs continuously while any is mounted, so it drives animation),
   `useViewport()` (`{ width, height }`, re-renders on resize), and `useGpuRoot()` (the
