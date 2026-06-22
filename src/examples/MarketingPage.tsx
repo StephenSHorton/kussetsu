@@ -18,42 +18,37 @@ const WHITE: RGBA = [1, 1, 1, 1];
 // Glass on a dark, colorful field: nearly clear (blur 2) so it refracts the light crisply;
 // the white rim + sheen + chromatic dispersion all read on dark.
 const COOL: RGBA = [0.86, 0.9, 1, 1];
-const NAV_GLASS: GlassSpec = { refraction: 0.06, blur: 2, tint: 0.06, tintColor: COOL, rim: 14, specular: 0.1, dispersion: 0.05 };
-const CARD_GLASS: GlassSpec = { refraction: 0.09, blur: 2, tint: 0.07, tintColor: COOL, rim: 16, specular: 0.1, dispersion: 0.06 };
-const CTA_GLASS: GlassSpec = { refraction: 0.1, blur: 2, tint: 0.05, tintColor: COOL, rim: 16, specular: 0.16, dispersion: 0.07 };
-const PANE_GLASS: GlassSpec = { refraction: 0.12, blur: 2, tint: 0.05, tintColor: COOL, rim: 18, specular: 0.14, dispersion: 0.09 };
+const NAV_GLASS: GlassSpec = { refraction: 0.06, blur: 0, tint: 0.06, tintColor: COOL, rim: 14, specular: 0.1, dispersion: 0.05 };
+const CARD_GLASS: GlassSpec = { refraction: 0.09, blur: 0, tint: 0.07, tintColor: COOL, rim: 16, specular: 0.1, dispersion: 0.06 };
+const CTA_GLASS: GlassSpec = { refraction: 0.1, blur: 0, tint: 0.05, tintColor: COOL, rim: 16, specular: 0.16, dispersion: 0.07 };
+const PANE_GLASS: GlassSpec = { refraction: 0.12, blur: 0, tint: 0.05, tintColor: COOL, rim: 18, specular: 0.14, dispersion: 0.09 };
 
-// Lamp effect (à la Aceternity): a thin bright tube + a soft glow CONE spreading down from it,
-// on deep navy. Rendered INTO the backdrop so glass refracts the light.
+// Lamp effect (à la Aceternity): thin bright tubes + soft glow CONES on deep navy. Several lamps
+// spaced down the page that SCROLL WITH IT (u.c0.x = page scroll, world Y → screen). Small,
+// spread, dim. Rendered INTO the backdrop so glass refracts the light.
 export const BG_LIGHTS = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let asp = u.res.x / max(u.res.y, 1.0);
   let p = vec2f(uv.x * asp, uv.y);
   let cx = 0.5 * asp;
-  let t = u.res.w;
-  var c = vec3f(0.013, 0.018, 0.04); // deep navy room
-
-  // the lamp tube
-  let ly = 0.28;
-  let halfW = 0.27 * asp;
-  let pulse = 0.92 + 0.08 * sin(t * 0.5);
-  // downward glow cone (soft, fades down; tight above the line)
-  let dx = (p.x - cx) / (halfW * 1.5);
-  let dyB = max(0.0, p.y - ly) / 0.46;
-  let dyA = max(0.0, ly - p.y) / 0.11;
-  let cone = exp(-(dx * dx + dyB * dyB + dyA * dyA)) * pulse;
-  let glowCol = mix(vec3f(0.22, 0.78, 1.0), vec3f(0.5, 0.32, 1.0), clamp((p.y - ly) * 1.1, 0.0, 1.0));
-  c += glowCol * cone * 0.95;
-  // the bright thin tube itself (fades at the ends)
-  let dl = (p.y - ly) / 0.0035;
-  let xMask = smoothstep(halfW, halfW * 0.78, abs(p.x - cx));
-  c += (vec3f(0.55, 0.88, 1.0) + vec3f(0.25)) * xMask / (1.0 + dl * dl);
-
-  // soft lower ambient (violet→magenta) so lower sections aren't dead-dark
-  let lx = (p.x - cx) / (0.7 * asp);
-  let lyd = max(0.0, 1.02 - p.y) / 0.6;
-  c += mix(vec3f(0.5, 0.18, 0.9), vec3f(0.95, 0.2, 0.6), uv.x) * exp(-(lx * lx + lyd * lyd)) * 0.4;
-
+  let scroll = u.c0.x;
+  let vh = max(u.res.y, 1.0);
+  let halfW = 0.20 * asp; // smaller tube
+  var c = vec3f(0.012, 0.016, 0.035); // deep navy room
+  for (var i = 0; i < 4; i = i + 1) {
+    let worldY = 360.0 + f32(i) * 740.0;   // lamps down the page, moving up as you scroll
+    let ly = (worldY - scroll) / vh;
+    let col = hsv2rgb(vec3f(fract(0.55 + f32(i) * 0.13), 0.72, 1.0)); // cyan → blue → violet → magenta
+    // glow cone — spread out + dim
+    let dx = (p.x - cx) / (halfW * 2.2);
+    let dyB = max(0.0, p.y - ly) / 0.62;
+    let dyA = max(0.0, ly - p.y) / 0.13;
+    c += col * exp(-(dx * dx + dyB * dyB + dyA * dyA)) * 0.5;
+    // the thin tube
+    let dl = (p.y - ly) / 0.004;
+    let xMask = smoothstep(halfW, halfW * 0.78, abs(p.x - cx));
+    c += (col * 0.5 + vec3f(0.28)) * xMask / (1.0 + dl * dl);
+  }
   return vec4f(c, 1.0);
 }`;
 

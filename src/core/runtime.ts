@@ -390,6 +390,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       pointer: lastPointer,
       particles,
       post: collectPostProcess(root, camera), // a node's postProcess prop → effect masked to its box
+      bgScroll: Math.max(0, ...scrollY.values()), // page scroll → the background shader scrolls with it
     });
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
     // animated materials + particles drive a continuous repaint loop

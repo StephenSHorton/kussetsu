@@ -64,6 +64,5 @@ if (params.has("stress")) {
   // enabling the sliders starts from here, not the dark demo defaults. NOTE: while the panel
   // is live it overrides EVERY glass panel with one shared param set (nav/cards/CTA become
   // identical) — find a look you like, then I bake it back into the per-element specs.
-  glassTuning.params = { refraction: 0.1, blur: 2, tint: 0.06, rim: 16, brighten: 1.03, specular: 0.1, dispersion: 0.06, tintColor: [0.86, 0.9, 1, 1] };
-  boot(MarketingPage, { camera: false, background: BG_LIGHTS });
+  boot(MarketingPage, { camera: false, background: BG_LIGHTS }, false); // marketing site, no dev panel
 }

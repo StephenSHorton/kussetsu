@@ -73,6 +73,8 @@ export interface FrameInfo {
   particles?: ParticleBatch;
   // Post-process effect masked to a SCREEN-px box (rect), so only that region is affected.
   post?: { effect: "bloom"; rect: [number, number, number, number] } | null;
+  // Page scroll (px) handed to the background shader as u.c0.x, so it can scroll with content.
+  bgScroll?: number;
 }
 
 // Glyph atlas: instanced per-glyph quads sampling a packed alpha atlas, tinted by
@@ -975,6 +977,7 @@ export class Painter {
       a[0] = 0; a[1] = 0; a[2] = cssWidth; a[3] = cssHeight; // rect = full screen
       a[4] = cssWidth; a[5] = cssHeight; a[6] = dpr; a[7] = info?.time ?? 0; // res + time
       a[8] = info?.pointer?.[0] ?? 0; a[9] = info?.pointer?.[1] ?? 0; a[10] = 0; a[11] = 0;
+      a[12] = info?.bgScroll ?? 0; // u.c0.x — page scroll, so the bg can scroll with the page
       this.device.queue.writeBuffer(this.bgBuffer, 0, a);
       const bg = this.device.createBindGroup({
         layout: this.materialBGL,
