@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Text, View } from "../core";
 import type { RGBA } from "../core/scene";
 
 const WHITE: RGBA = [0.96, 0.97, 1, 1];
@@ -35,65 +36,65 @@ export function App() {
     setNodes((ns) => ns.map((n) => (n.id === id ? { ...n, x: n.x + dx, y: n.y + dy } : n)));
 
   return (
-    <view style={{ direction: "column", padding: 56, gap: 24, background: PAGE }}>
-      <view style={{ direction: "column", gap: 8 }}>
-        <text role="heading" level={1} style={{ fontSize: 30, fontWeight: 800, color: WHITE }}>
+    <View style={{ direction: "column", padding: 56, gap: 24, background: PAGE }}>
+      <View style={{ direction: "column", gap: 8 }}>
+        <Text role="heading" level={1} style={{ fontSize: 30, fontWeight: 800, color: WHITE }}>
           GPU-rendered node editor
-        </text>
-        <text role="paragraph" style={{ fontSize: 15, color: MUTED }}>
+        </Text>
+        <Text role="paragraph" style={{ fontSize: 15, color: MUTED }}>
           Drag the nodes. Drag the two glass panels over each other — the top refracts the bottom (glass-over-glass).
-        </text>
-      </view>
+        </Text>
+      </View>
 
       {/* Reserves the editor area the absolute nodes + glass occupy. */}
-      <view style={{ width: "stretch", height: 360 }} />
+      <View style={{ width: "stretch", height: 360 }} />
 
       {/* Real flexbox (Yoga): a wrapping chip row. */}
-      <view style={{ direction: "row", wrap: true, gap: 10, width: 640 }}>
+      <View style={{ direction: "row", wrap: true, gap: 10, width: 640 }}>
         {CHIPS.map((t, i) => (
-          <view key={i} style={{ direction: "row", padding: 10, radius: 10, background: [0.15, 0.17, 0.25, 1] }}>
-            <text style={{ fontSize: 13, fontWeight: 600, color: [0.78, 0.84, 0.96, 1] }}>{t}</text>
-          </view>
+          <View key={i} style={{ direction: "row", padding: 10, radius: 10, background: [0.15, 0.17, 0.25, 1] }}>
+            <Text style={{ fontSize: 13, fontWeight: 600, color: [0.78, 0.84, 0.96, 1] }}>{t}</Text>
+          </View>
         ))}
-      </view>
+      </View>
 
       {/* Selectable + wrapping text (A): click and drag across it to select. */}
-      <view style={{ width: 440, padding: 18, radius: 14, background: [0.08, 0.1, 0.16, 1] }}>
-        <text selectable role="paragraph" style={{ width: "stretch", fontSize: 16, fontWeight: 400, color: [0.82, 0.87, 0.97, 1] }}>
+      <View style={{ width: 440, padding: 18, radius: 14, background: [0.08, 0.1, 0.16, 1] }}>
+        <Text selectable role="paragraph" style={{ width: "stretch", fontSize: 16, fontWeight: 400, color: [0.82, 0.87, 0.97, 1] }}>
           {"This paragraph is GPU-painted and wraps via Intl.Segmenter. Click and drag across it to select — the highlight and caret come from per-character positions measured on the fly. Real text, on a canvas we own."}
-        </text>
-      </view>
+        </Text>
+      </View>
 
       {/* Editable field (C): click to focus a transparent <input>; type / IME. */}
-      <view editable value={field} onChange={setField} style={{ width: 440, height: 46, direction: "row", align: "center", padding: 14, radius: 12, background: [0.1, 0.12, 0.2, 1] }}>
-        <text style={{ fontSize: 16, color: [0.92, 0.95, 1, 1] }}>{field}</text>
-      </view>
+      <View editable value={field} onChange={setField} style={{ width: 440, height: 46, direction: "row", align: "center", padding: 14, radius: 12, background: [0.1, 0.12, 0.2, 1] }}>
+        <Text style={{ fontSize: 16, color: [0.92, 0.95, 1, 1] }}>{field}</Text>
+      </View>
 
       {/* Scrolling + clipping: a fixed-height list. */}
-      <view style={{ width: 380, height: 200, overflow: "scroll", padding: 12, gap: 8, radius: 14, background: [0.07, 0.09, 0.15, 1] }}>
+      <View style={{ width: 380, height: 200, overflow: "scroll", padding: 12, gap: 8, radius: 14, background: [0.07, 0.09, 0.15, 1] }}>
         {Array.from({ length: 24 }, (_, i) => (
-          <view key={i} style={{ width: "stretch", height: 40, shrink: 0, direction: "row", align: "center", padding: 12, radius: 9, background: [0.14, 0.16, 0.25, 1] }}>
-            <text style={{ fontSize: 14, fontWeight: 600, color: [0.84, 0.89, 1, 1] }}>{`Row ${i + 1} — scroll me`}</text>
-          </view>
+          <View key={i} style={{ width: "stretch", height: 40, shrink: 0, direction: "row", align: "center", padding: 12, radius: 9, background: [0.14, 0.16, 0.25, 1] }}>
+            <Text style={{ fontSize: 14, fontWeight: 600, color: [0.84, 0.89, 1, 1] }}>{`Row ${i + 1} — scroll me`}</Text>
+          </View>
         ))}
-      </view>
+      </View>
 
       {/* Draggable nodes (absolute, over the editor area). */}
       {nodes.map((n) => (
-        <view
+        <View
           key={n.id}
           draggable
           ariaLabel={n.label}
           onDrag={(dx, dy) => moveNode(n.id, dx, dy)}
           style={{ absolute: { x: n.x, y: n.y }, width: 150, height: 92, radius: 14, background: n.color, direction: "column", justify: "end", padding: 14 }}
         >
-          <text style={{ fontSize: 15, fontWeight: 700, color: WHITE }}>{n.label}</text>
-        </view>
+          <Text style={{ fontSize: 15, fontWeight: 700, color: WHITE }}>{n.label}</Text>
+        </View>
       ))}
 
       {/* Two draggable glass panels — overlap => glass-over-glass (B refracts A). */}
-      <view glass={GLASS} draggable ariaLabel="Glass panel A" onDrag={(dx, dy) => setGlassA((p) => ({ x: p.x + dx, y: p.y + dy }))} style={{ absolute: glassA, width: 230, height: 155, radius: 24 }} />
-      <view glass={GLASS} draggable ariaLabel="Glass panel B" onDrag={(dx, dy) => setGlassB((p) => ({ x: p.x + dx, y: p.y + dy }))} style={{ absolute: glassB, width: 230, height: 155, radius: 24 }} />
-    </view>
+      <View glass={GLASS} draggable ariaLabel="Glass panel A" onDrag={(dx, dy) => setGlassA((p) => ({ x: p.x + dx, y: p.y + dy }))} style={{ absolute: glassA, width: 230, height: 155, radius: 24 }} />
+      <View glass={GLASS} draggable ariaLabel="Glass panel B" onDrag={(dx, dy) => setGlassB((p) => ({ x: p.x + dx, y: p.y + dy }))} style={{ absolute: glassB, width: 230, height: 155, radius: 24 }} />
+    </View>
   );
 }

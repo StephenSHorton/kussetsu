@@ -29,8 +29,8 @@ npm i kussetsu
 
 ## Quick start
 
-You write ordinary React. The only new vocabulary is two host elements —
-`<view>` (a box) and `<text>` (a string) — plus a GPU root to mount onto.
+You write ordinary React. The only new vocabulary is two components —
+`<View>` (a box) and `<Text>` (a string) — plus a GPU root to mount onto.
 
 First, the page. The `<canvas>` needs a **non-zero CSS size** inside a
 **positioned parent** — Kussetsu sizes the framebuffer from the canvas's CSS box and
@@ -51,14 +51,14 @@ lays the invisible accessibility/input overlay directly over it. Don't set the c
 Then the React:
 
 ```tsx
-import { createGpuRoot } from "kussetsu";
+import { createGpuRoot, View, Text } from "kussetsu";
 
 function App() {
   return (
-    <view glass={{ refraction: 0.1, dispersion: 0.07 }}
+    <View glass={{ refraction: 0.1, dispersion: 0.07 }}
       style={{ padding: 28, radius: 22, gap: 10 }}>
-      <text style={{ fontWeight: 800 }}>Hello, light.</text>
-    </view>
+      <Text style={{ fontWeight: 800 }}>Hello, light.</Text>
+    </View>
   );
 }
 
@@ -79,8 +79,8 @@ boot();
 
 That's the whole API surface to get pixels on screen: `createGpuRoot(canvas, opts?)`
 returns a `GpuRoot` with `render()`, `frame()`, `requestRender()`, and `destroy()`.
-Importing `kussetsu` also pulls in the JSX typings for `<view>` / `<text>` (see the
-type-checking caveat under [Status](#status--honest)).
+`<View>` / `<Text>` are fully typed — `style`, `glass`, `onActivate`, and friends all
+autocomplete and type-check.
 
 > The mount is wrapped in `boot()` rather than a bare top-level `await` so it compiles
 > on every toolchain (CRA/Jest/older targets don't allow top-level `await`). In a React
@@ -110,7 +110,7 @@ once, with `GLASS_DEFAULTS` as the reset baseline).
 ## How it works
 
 ```
-React (<view>/<text>)                    authored as ordinary components
+React (<View>/<Text>)                    authored as ordinary components
    │
    ▼
 react-reconciler (custom HostConfig)     src/core/hostConfig.ts
@@ -190,15 +190,14 @@ renderer with a real published-library shape, not a finished framework. Known ca
   `try/catch` and render your own HTML fallback (see [Quick start](#quick-start)).
 - **ESM-only.** No CommonJS build — use a modern ESM bundler (Vite / Next / etc.).
 - **React 18 only.** The reconciler is 18-era; the peer range is `^18.2.0` (no 19 yet).
-- **Host-element types collide with SVG.** `<view>`/`<text>` deliberately shadow SVG's
-  intrinsic elements, but the global JSX augmentation currently loses to React's SVG
-  typings, so those props don't type-check for consumers yet (the renderer runs fine —
-  esbuild/Vite strip types). Fix tracked in
-  [#2](https://github.com/StephenSHorton/kussetsu/issues/2). Separately, the build emits
-  declarations with `skipLibCheck` because the react-reconciler typings aren't fully
-  validated — keep `skipLibCheck: true` (the Vite / Next / CRA default). *Note:*
-  `skipLibCheck` only silences errors inside `.d.ts` files; it does **not** suppress the
-  SVG-collision errors raised in your own `.tsx` — that needs the #2 fix.
+- **Use the `<View>` / `<Text>` components, not lowercase intrinsics.** `@types/react`
+  already claims `view` and `text` for SVG in `JSX.IntrinsicElements`, and a JSX
+  augmentation can only *merge* with that (intersecting Kussetsu's `style: Style` with
+  SVG's `CSSProperties`), so lowercase `<view>` / `<text>` don't type-check. The exported
+  `<View>` / `<Text>` components sidestep the collision and are fully typed — prefer them.
+  (The lowercase host elements still work at runtime as an untyped escape hatch.) The
+  build also emits declarations with `skipLibCheck` because the react-reconciler typings
+  aren't fully validated — keep `skipLibCheck: true` (the Vite / Next / CRA default).
 - **Text is browser-shaped.** LTR only — bidi / complex-script (RTL, Arabic, Indic)
   caret + selection is out of scope, and the glyph atlas softens past its base size
   (no MSDF yet, so it isn't crisp at *arbitrary* zoom).
