@@ -14,7 +14,7 @@ const INK: RGBA = [0.04, 0.05, 0.1, 1];
 // ── the materials (WGSL fragment shaders). Each defines `fn material(uv, px) -> vec4f`
 //    and may read u.res.w (time), u.ptr.xy (pointer px), u.rect, and sampleBackdrop(px). ──
 
-const AURORA = `
+export const AURORA = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let t = u.res.w;
   let p = uv * vec2f(3.0, 2.2);
@@ -27,7 +27,7 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
   return vec4f(col, 1.0);
 }`;
 
-const PLASMA = `
+export const PLASMA = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let t = u.res.w;
   let p = uv * 6.0;
@@ -39,7 +39,7 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
   return vec4f(col, 1.0);
 }`;
 
-const HOLOGRAPHIC = `
+export const HOLOGRAPHIC = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let center = u.rect.xy + u.rect.zw * 0.5;
   let dir = (u.ptr.xy - center) / max(u.rect.x + u.rect.z, 1.0);
@@ -51,7 +51,7 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
   return vec4f(col, 1.0);
 }`;
 
-const RIPPLE = `
+export const RIPPLE = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let t = u.res.w;
   let d = distance(px, u.ptr.xy);
@@ -62,7 +62,7 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
   return vec4f(c.rgb + vec3f(wave * 0.15), 1.0);
 }`;
 
-const LOUPE = `
+export const LOUPE = `
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let R = 96.0;
   let d = distance(px, u.ptr.xy);

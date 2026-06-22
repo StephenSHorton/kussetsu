@@ -1,0 +1,261 @@
+import { useEffect, useMemo, useState } from "react";
+import { useSpring } from "../core/useSpring";
+import type { MaterialSpec, RGBA } from "../core/scene";
+import { AURORA, PLASMA, HOLOGRAPHIC, RIPPLE, LOUPE } from "./FxGallery";
+
+// The one-page showcase. A tall scrolling column of sections (pageScroll), each showing
+// something CSS structurally can't do: shader materials, real spring physics + squircles,
+// a glass panel refracting live moving content, and a build-time React→GPU migration shown
+// as code↔result. No tabs. Authored in plain React with <view>/<text> — except the Migrate
+// card, which is literally HTML/Tailwind transformed by kussetsu/compat at build time.
+
+const INK: RGBA = [0.03, 0.04, 0.08, 1];
+const WHITE: RGBA = [0.97, 0.98, 1, 1];
+const MUTED: RGBA = [0.6, 0.65, 0.78, 1];
+const FAINT: RGBA = [0.45, 0.5, 0.64, 1];
+
+function Heading({ title, sub }: { title: string; sub: string }) {
+  return (
+    <view style={{ width: "stretch", direction: "column", gap: 7, padding: 44 }}>
+      <text role="heading" level={2} style={{ fontSize: 32, fontWeight: 800, color: WHITE }}>{title}</text>
+      <text style={{ maxWidth: 720, fontSize: 16, fontWeight: 500, color: MUTED }}>{sub}</text>
+    </view>
+  );
+}
+
+// ── Hero ────────────────────────────────────────────────────────────────────────
+function Header({ vw }: { vw: number }) {
+  return (
+    <view style={{ width: "stretch", height: 300, direction: "column", align: "center", justify: "center", gap: 16, padding: 40 }}>
+      <text role="heading" level={1} style={{ fontSize: 64, fontWeight: 800, color: WHITE }}>Kussetsu</text>
+      <text style={{ maxWidth: 760, fontSize: 19, fontWeight: 500, color: MUTED }}>
+        A UI framework where every pixel is painted on the GPU and the DOM is just an invisible layer for accessibility and input. Below: things the browser can't render. Scroll ↓
+      </text>
+    </view>
+  );
+}
+
+// ── Section 1: shader materials (the hero capability) ─────────────────────────────
+interface Tile { name: string; note: string; spec?: MaterialSpec; glass?: boolean; }
+const FX_TILES: Tile[] = [
+  { name: "Aurora", note: "procedural · animated", spec: { shader: AURORA, animated: true } },
+  { name: "Plasma", note: "procedural · animated", spec: { shader: PLASMA, animated: true } },
+  { name: "Holographic", note: "follows your cursor", spec: { shader: HOLOGRAPHIC, animated: true } },
+  { name: "Ripple", note: "bends the live backdrop", spec: { shader: RIPPLE, animated: true, backdrop: true } },
+  { name: "Loupe", note: "magnifies under cursor", spec: { shader: LOUPE, backdrop: true } },
+  { name: "Glass", note: "refraction + dispersion", glass: true },
+];
+const FX_BANDS: { word: string; color: RGBA }[] = [
+  { word: "SHADERS AS MATERIALS", color: [0.36, 0.4, 0.95, 1] },
+  { word: "SAMPLE THE LIVE SCENE", color: [0.1, 0.72, 0.66, 1] },
+  { word: "BEND IT · WARP IT · GLOW", color: [0.96, 0.45, 0.2, 1] },
+  { word: "BACKDROP-FILTER COULD NEVER", color: [0.86, 0.32, 0.56, 1] },
+];
+const TILE_W = 248, TILE_H = 178, GAP = 22;
+
+function FxSection({ vw }: { vw: number }) {
+  const cols = 3;
+  const gridW = cols * TILE_W + (cols - 1) * GAP;
+  const gridX = Math.round((vw - gridW) / 2);
+  const bandsTop = 150, bandsH = 620;
+  return (
+    <view style={{ width: "stretch", height: 820, direction: "column" }}>
+      <Heading title="Shaders as materials" sub="Every tile's fill is a custom WGSL fragment shader — “react-three-fiber, but for 2D UI”. The last three sample the live scene behind them and bend it; move your cursor over Ripple and Loupe." />
+      {/* textured backdrop so the sampling materials have detail to bend/magnify */}
+      <view style={{ absolute: { x: 0, y: bandsTop }, width: vw, height: bandsH, direction: "column", overflow: "hidden" }}>
+        {FX_BANDS.map((b, i) => (
+          <view key={i} style={{ width: "stretch", grow: 1, background: b.color, direction: "column", justify: "center", padding: 36, overflow: "hidden" }}>
+            <text style={{ fontSize: 34, fontWeight: 800, color: INK }}>{(b.word + "   ").repeat(5)}</text>
+          </view>
+        ))}
+      </view>
+      {/* the tiles */}
+      <view style={{ absolute: { x: gridX, y: bandsTop + Math.round((bandsH - (2 * TILE_H + GAP)) / 2) }, width: gridW, direction: "row", wrap: true, gap: GAP }}>
+        {FX_TILES.map((t) => {
+          const inner = (
+            <view style={{ grow: 1, width: "stretch", direction: "column", justify: "end", padding: 14, gap: 2 }}>
+              <text style={{ fontSize: 16, fontWeight: 800, color: WHITE }}>{t.name}</text>
+              <text style={{ fontSize: 12, fontWeight: 600, color: [0.85, 0.88, 0.98, 0.85] }}>{t.note}</text>
+            </view>
+          );
+          const style = { width: TILE_W, height: TILE_H, shrink: 0, radius: 18, cornerSmoothing: 0.6, direction: "column" } as const;
+          return t.glass
+            ? <view key={t.name} glass={{ refraction: 0.13, dispersion: 0.07, blur: 4, tint: 0.05, rim: 16 }} style={style}>{inner}</view>
+            : <view key={t.name} material={t.spec} style={style}>{inner}</view>;
+        })}
+      </view>
+    </view>
+  );
+}
+
+// ── Section 2: springs + squircles ────────────────────────────────────────────────
+interface Preset { name: string; w: number; h: number; radius: number; sm: number; color: [number, number, number]; }
+const PRESETS: Preset[] = [
+  { name: "Rounded", w: 260, h: 260, radius: 40, sm: 0, color: [0.36, 0.4, 0.95] },
+  { name: "Squircle", w: 260, h: 260, radius: 78, sm: 1, color: [0.1, 0.72, 0.66] },
+  { name: "Circle", w: 260, h: 260, radius: 130, sm: 0, color: [0.96, 0.45, 0.2] },
+  { name: "Pill", w: 400, h: 150, radius: 75, sm: 0.4, color: [0.86, 0.32, 0.56] },
+  { name: "Card", w: 400, h: 250, radius: 18, sm: 0.6, color: [0.56, 0.35, 0.95] },
+];
+const BOUNCY = { stiffness: 190, damping: 13 };
+const SMOOTH = { stiffness: 190, damping: 22 };
+const CHIP: RGBA = [0.12, 0.14, 0.22, 1];
+const CHIP_ON: RGBA = [0.3, 0.36, 0.62, 1];
+
+function SpringSection() {
+  const [i, setI] = useState(1);
+  const p = PRESETS[i];
+  const w = useSpring(p.w, BOUNCY), h = useSpring(p.h, BOUNCY);
+  const radius = useSpring(p.radius, BOUNCY), sm = useSpring(p.sm, SMOOTH);
+  const cr = useSpring(p.color[0], SMOOTH), cg = useSpring(p.color[1], SMOOTH), cb = useSpring(p.color[2], SMOOTH);
+  return (
+    <view style={{ width: "stretch", height: 720, direction: "column", background: INK }}>
+      <Heading title="Springs + squircles" sub="Click a shape: it springs there with real, interruptible physics (change targets mid-flight and it carries momentum) — and the corners are true superellipse squircles, not circular arcs. Neither is possible with CSS." />
+      <view style={{ grow: 1, width: "stretch", direction: "column", align: "center", justify: "center", gap: 44 }}>
+        <view style={{ width: 440, height: 290, direction: "row", align: "center", justify: "center" }}>
+          <view style={{ width: Math.round(w), height: Math.round(h), radius, cornerSmoothing: sm, background: [cr, cg, cb, 1] }} />
+        </view>
+        <view style={{ direction: "row", gap: 12 }}>
+          {PRESETS.map((pp, idx) => (
+            <view key={pp.name} role="button" ariaLabel={`Morph to ${pp.name}`} onActivate={() => setI(idx)}
+              style={{ height: 44, shrink: 0, direction: "row", align: "center", justify: "center", padding: 18, radius: 13, cornerSmoothing: 0.6, background: idx === i ? CHIP_ON : CHIP }}>
+              <text style={{ fontSize: 14, fontWeight: 700, color: idx === i ? WHITE : [0.78, 0.82, 0.94, 1] }}>{pp.name}</text>
+            </view>
+          ))}
+        </view>
+      </view>
+    </view>
+  );
+}
+
+// ── Section 3: glass over live moving content ─────────────────────────────────────
+const DRIFT: { color: RGBA; w: number; h: number; r: number; y: number; speed: number }[] = [
+  { color: [0.36, 0.4, 0.95, 1], w: 150, h: 150, r: 28, y: 40, speed: 34 },
+  { color: [0.1, 0.72, 0.66, 1], w: 120, h: 120, r: 60, y: 150, speed: -26 },
+  { color: [0.96, 0.65, 0.13, 1], w: 170, h: 110, r: 22, y: 250, speed: 44 },
+  { color: [0.86, 0.32, 0.56, 1], w: 130, h: 130, r: 65, y: 60, speed: -38 },
+  { color: [0.55, 0.35, 0.95, 1], w: 160, h: 160, r: 36, y: 230, speed: 30 },
+  { color: [0.18, 0.71, 0.61, 1], w: 110, h: 110, r: 24, y: 150, speed: -48 },
+];
+
+function GlassSection({ vw, t }: { vw: number; t: number }) {
+  const sectionH = 600, contentTop = 150, span = vw + 280;
+  const panelW = Math.min(520, vw - 120), panelH = 220;
+  return (
+    <view style={{ width: "stretch", height: sectionH, direction: "column", background: INK }}>
+      <Heading title="Glass over anything" sub="Because kussetsu owns the framebuffer, a glass panel refracts whatever's behind it — here, shapes drifting live. CSS backdrop-filter can blur a rectangle, but it can't refract, disperse, or reach moving content like this." />
+      {DRIFT.map((c, idx) => {
+        const x = ((c.speed * t + idx * 360) % span + span) % span - 140;
+        return <view key={idx} style={{ absolute: { x: Math.round(x), y: contentTop + c.y }, width: c.w, height: c.h, radius: c.r, cornerSmoothing: 0.5, background: c.color }} />;
+      })}
+      <view glass={{ refraction: 0.14, dispersion: 0.07, blur: 3, tint: 0.05, rim: 16 }}
+        style={{ absolute: { x: Math.round((vw - panelW) / 2), y: contentTop + 90 }, width: panelW, height: panelH, radius: 26, cornerSmoothing: 0.6, direction: "column", align: "center", justify: "center", gap: 6 }}>
+        <text style={{ fontSize: 22, fontWeight: 800, color: WHITE }}>One glass panel</text>
+        <text style={{ fontSize: 15, color: [0.85, 0.88, 0.99, 0.9] }}>refracting the live scene behind it</text>
+      </view>
+    </view>
+  );
+}
+
+// ── Section 4: migrate — code ↔ live result ───────────────────────────────────────
+// The card on the right is PLAIN HTML/Tailwind, transformed at build time by kussetsu/compat.
+function MigratedCard() {
+  const [following, setFollowing] = useState(false);
+  return (
+    <div className="flex-col p-5 rounded-2xl bg-slate-800" style={{ width: 300, gap: 14 }}>
+      <div className="flex-row items-center gap-3">
+        <div className="rounded-full bg-indigo-500" style={{ width: 46, height: 46 }} />
+        <div className="flex-col">
+          <h3 className="text-lg font-bold text-white">Ada Lovelace</h3>
+          <p className="text-sm text-slate-400">First programmer</p>
+        </div>
+      </div>
+      <button className="flex-row items-center justify-center rounded-lg bg-indigo-600 text-white w-full" style={{ height: 42, fontSize: 15, fontWeight: 700 }} onClick={() => setFollowing((f) => !f)}>
+        <span>{following ? "Following ✓" : "Follow"}</span>
+      </button>
+    </div>
+  );
+}
+
+const CODE: { text: string; kind?: "tag" | "attr" | "str" }[][] = [
+  [{ text: "<div ", kind: "tag" }, { text: 'className="flex-col p-5', kind: "str" }],
+  [{ text: '       rounded-2xl bg-slate-800"', kind: "str" }, { text: ">" }],
+  [{ text: "  <div ", kind: "tag" }, { text: 'className="flex-row', kind: "str" }],
+  [{ text: '              items-center gap-3"', kind: "str" }, { text: ">" }],
+  [{ text: "    <div ", kind: "tag" }, { text: 'className="rounded-full', kind: "str" }],
+  [{ text: '                bg-indigo-500" />', kind: "str" }],
+  [{ text: "    <h3 ", kind: "tag" }, { text: 'className="text-lg', kind: "str" }],
+  [{ text: '             font-bold text-white"', kind: "str" }, { text: ">Ada</h3>" }],
+  [{ text: "  </div>", kind: "tag" }],
+  [{ text: "  <button ", kind: "tag" }, { text: "onClick", kind: "attr" }, { text: "={toggle}", kind: "str" }, { text: ">" }],
+  [{ text: "    <span>", kind: "tag" }, { text: "{following ? 'Following' : 'Follow'}" }],
+  [{ text: "  </span></button>", kind: "tag" }],
+  [{ text: "</div>", kind: "tag" }],
+];
+const CODE_COLOR: Record<string, RGBA> = { tag: [0.55, 0.62, 0.95, 1], str: [0.45, 0.78, 0.6, 1], attr: [0.92, 0.7, 0.45, 1] };
+
+function MigrateSection({ vw }: { vw: number }) {
+  const colsW = Math.min(900, vw - 120);
+  return (
+    <view style={{ width: "stretch", height: 700, direction: "column", background: INK }}>
+      <Heading title="Migrate your React" sub="Point the build at existing React and kussetsu/compat tag-aliases the HTML + maps a Tailwind subset onto the GPU vocabulary — and fails loud on anything it can't paint. The card on the right is the code on the left, transformed at build time." />
+      <view style={{ grow: 1, width: "stretch", direction: "row", align: "center", justify: "center", gap: 40 }}>
+        {/* left: the source you write */}
+        <view style={{ width: Math.round(colsW * 0.56), direction: "column", gap: 10 }}>
+          <text style={{ fontSize: 13, fontWeight: 700, color: FAINT }}>YOU WRITE — plain HTML + Tailwind</text>
+          <view style={{ width: "stretch", radius: 14, cornerSmoothing: 0.6, background: [0.06, 0.07, 0.12, 1], padding: 22, direction: "column", gap: 3 }}>
+            {CODE.map((line, i) => (
+              <view key={i} style={{ direction: "row" }}>
+                {line.map((seg, j) => (
+                  <text key={j} style={{ fontSize: 13.5, fontWeight: 500, color: seg.kind ? CODE_COLOR[seg.kind] : [0.78, 0.82, 0.92, 1] }}>{seg.text}</text>
+                ))}
+              </view>
+            ))}
+          </view>
+        </view>
+        {/* right: the live GPU result (same code, compiled) */}
+        <view style={{ direction: "column", gap: 10, align: "start" }}>
+          <text style={{ fontSize: 13, fontWeight: 700, color: FAINT }}>KUSSETSU RENDERS — on the GPU, accessible</text>
+          <MigratedCard />
+        </view>
+      </view>
+    </view>
+  );
+}
+
+function Footer() {
+  return (
+    <view style={{ width: "stretch", height: 150, direction: "column", align: "center", justify: "center", gap: 6 }}>
+      <text style={{ fontSize: 15, fontWeight: 600, color: MUTED }}>Real React · custom reconciler · WebGPU · an invisible accessible DOM</text>
+      <text style={{ fontSize: 13, color: FAINT }}>every pixel above is WGSL output on one canvas</text>
+    </view>
+  );
+}
+
+export function MainPage() {
+  const [, force] = useState(0);
+  const [t, setT] = useState(0);
+  useEffect(() => {
+    let raf = 0;
+    const loop = (now: number) => { setT(now / 1000); raf = requestAnimationFrame(loop); };
+    raf = requestAnimationFrame(loop);
+    const onResize = () => force((x) => x + 1);
+    window.addEventListener("resize", onResize);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
+  }, []);
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
+  // Heavy, animation-independent sections are memoized so the per-frame drift tick only
+  // reconciles what actually moves.
+  const fx = useMemo(() => <FxSection vw={vw} />, [vw]);
+  const migrate = useMemo(() => <MigrateSection vw={vw} />, [vw]);
+  return (
+    <view style={{ direction: "column", width: vw, background: INK }}>
+      <Header vw={vw} />
+      {fx}
+      <SpringSection />
+      <GlassSection vw={vw} t={t} />
+      {migrate}
+      <Footer />
+    </view>
+  );
+}

@@ -5,12 +5,12 @@ import { createGpuRoot, type GpuRootOptions } from "../core/runtime";
 import { buildGlassPanel } from "./devPanel";
 import { glassTuning } from "../core/glassTuning";
 import { App } from "./App";
-import { ChatApp } from "./ChatApp";
 import { CompatDemo } from "./compat";
 import { bootCommandMenu } from "./CommandMenuDemo";
 import { FxGallery } from "./FxGallery";
 import { MorphDemo } from "./MorphDemo";
 import { Showcase } from "./Showcase";
+import { MainPage } from "./MainPage";
 import { runStress } from "./stress";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
@@ -54,8 +54,8 @@ if (params.has("stress")) {
   boot(FxGallery, { camera: false });
 } else if (params.has("spring")) {
   boot(MorphDemo, { camera: false });
-} else if (params.has("chat")) {
-  boot(ChatApp, { camera: false });
+} else if (params.has("showcase")) {
+  boot(Showcase, { camera: false }); // the old tabbed showcase
 } else {
-  boot(Showcase, { camera: false }); // default: the tabbed showcase
+  boot(MainPage, { camera: false, pageScroll: true }); // default: the one-page scrolling showcase
 }
