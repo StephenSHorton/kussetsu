@@ -23,28 +23,37 @@ const CARD_GLASS: GlassSpec = { refraction: 0.09, blur: 2, tint: 0.07, tintColor
 const CTA_GLASS: GlassSpec = { refraction: 0.1, blur: 2, tint: 0.05, tintColor: COOL, rim: 16, specular: 0.16, dispersion: 0.07 };
 const PANE_GLASS: GlassSpec = { refraction: 0.12, blur: 2, tint: 0.05, tintColor: COOL, rim: 18, specular: 0.14, dispersion: 0.09 };
 
-// Controlled neon light-bars in a dark room: a few parallel diagonal tubes, strong colors,
-// gentle drift — rendered INTO the backdrop so glass refracts them.
+// Lamp effect (à la Aceternity): a thin bright tube + a soft glow CONE spreading down from it,
+// on deep navy. Rendered INTO the backdrop so glass refracts the light.
 export const BG_LIGHTS = `
-fn bar(p: vec2f, a: vec2f, b: vec2f, col: vec3f, w: f32) -> vec3f {
-  let pa = p - a; let ba = b - a;
-  let h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-  let d = length(pa - ba * h);
-  return col / (1.0 + (d * d) / (w * w)); // neon-tube falloff: thin bright core + glow
-}
 fn material(uv: vec2f, px: vec2f) -> vec4f {
-  let t = u.res.w * 0.08;
-  let W = u.res.x / max(u.res.y, 1.0);
-  let p = vec2f(uv.x * W, uv.y);
-  let o = 0.05 * sin(t * 0.6); // gentle drift along the bars' normal
-  let s = 0.22;                // slope — parallel diagonals
-  var c = vec3f(0.0);
-  c += bar(p, vec2f(-0.2 * W, -0.05 + o), vec2f(1.2 * W, -0.05 + s + o), vec3f(1.0, 0.10, 0.55), 0.009);   // pink
-  c += bar(p, vec2f(-0.2 * W, 0.20 + o), vec2f(1.2 * W, 0.20 + s + o), vec3f(0.15, 0.85, 1.0), 0.008);     // cyan
-  c += bar(p, vec2f(-0.2 * W, 0.45 - o), vec2f(1.2 * W, 0.45 + s - o), vec3f(0.55, 0.22, 1.0), 0.009);     // purple
-  c += bar(p, vec2f(-0.2 * W, 0.70 + o * 0.7), vec2f(1.2 * W, 0.70 + s + o * 0.7), vec3f(0.10, 1.0, 0.55), 0.008); // green
-  c += bar(p, vec2f(-0.2 * W, 0.95 - o * 0.6), vec2f(1.2 * W, 0.95 + s - o * 0.6), vec3f(1.0, 0.55, 0.10), 0.008); // orange
-  c *= 0.92 + 0.12 * fbm(p * 3.0 + t); // subtle flicker
+  let asp = u.res.x / max(u.res.y, 1.0);
+  let p = vec2f(uv.x * asp, uv.y);
+  let cx = 0.5 * asp;
+  let t = u.res.w;
+  var c = vec3f(0.013, 0.018, 0.04); // deep navy room
+
+  // the lamp tube
+  let ly = 0.28;
+  let halfW = 0.27 * asp;
+  let pulse = 0.92 + 0.08 * sin(t * 0.5);
+  // downward glow cone (soft, fades down; tight above the line)
+  let dx = (p.x - cx) / (halfW * 1.5);
+  let dyB = max(0.0, p.y - ly) / 0.46;
+  let dyA = max(0.0, ly - p.y) / 0.11;
+  let cone = exp(-(dx * dx + dyB * dyB + dyA * dyA)) * pulse;
+  let glowCol = mix(vec3f(0.22, 0.78, 1.0), vec3f(0.5, 0.32, 1.0), clamp((p.y - ly) * 1.1, 0.0, 1.0));
+  c += glowCol * cone * 0.95;
+  // the bright thin tube itself (fades at the ends)
+  let dl = (p.y - ly) / 0.0035;
+  let xMask = smoothstep(halfW, halfW * 0.78, abs(p.x - cx));
+  c += (vec3f(0.55, 0.88, 1.0) + vec3f(0.25)) * xMask / (1.0 + dl * dl);
+
+  // soft lower ambient (violet→magenta) so lower sections aren't dead-dark
+  let lx = (p.x - cx) / (0.7 * asp);
+  let lyd = max(0.0, 1.02 - p.y) / 0.6;
+  c += mix(vec3f(0.5, 0.18, 0.9), vec3f(0.95, 0.2, 0.6), uv.x) * exp(-(lx * lx + lyd * lyd)) * 0.4;
+
   return vec4f(c, 1.0);
 }`;
 
