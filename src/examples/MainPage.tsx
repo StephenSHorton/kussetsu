@@ -277,6 +277,25 @@ function Footer() {
   );
 }
 
+/** The five capability sections, without page chrome — reused by the standalone demo route AND
+ *  appended to the bottom of the marketing page. Heavy sections are memoized so the per-frame
+ *  drift tick only reconciles the animated glass. */
+export function DemoSections({ vw, t }: { vw: number; t: number }) {
+  const fx = useMemo(() => <FxSection vw={vw} />, [vw]);
+  const springs = useMemo(() => <SpringSection />, []);
+  const particles = useMemo(() => <ParticleSection vw={vw} />, [vw]);
+  const migrate = useMemo(() => <MigrateSection vw={vw} />, [vw]);
+  return (
+    <>
+      {fx}
+      {springs}
+      <GlassSection vw={vw} t={t} />
+      {particles}
+      {migrate}
+    </>
+  );
+}
+
 export function MainPage() {
   const [, force] = useState(0);
   const [t, setT] = useState(0);
@@ -289,19 +308,10 @@ export function MainPage() {
     return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
   }, []);
   const vw = typeof window !== "undefined" ? window.innerWidth : 1280;
-  // Heavy, animation-independent sections are memoized so the per-frame drift tick only
-  // reconciles what actually moves.
-  const fx = useMemo(() => <FxSection vw={vw} />, [vw]);
-  const particles = useMemo(() => <ParticleSection vw={vw} />, [vw]);
-  const migrate = useMemo(() => <MigrateSection vw={vw} />, [vw]);
   return (
     <view style={{ direction: "column", width: vw, background: INK }}>
       <Header vw={vw} />
-      {fx}
-      <SpringSection />
-      <GlassSection vw={vw} t={t} />
-      {particles}
-      {migrate}
+      <DemoSections vw={vw} t={t} />
       <Footer />
     </view>
   );

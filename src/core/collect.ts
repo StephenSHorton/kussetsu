@@ -362,28 +362,30 @@ export interface PostRegion {
 /** The first node with props.postProcess → the effect + its on-screen box. The whole scene
  *  still renders through the post pipeline, but the effect is masked to this region so the
  *  rest of the page stays untouched. */
-export function collectPostProcess(root: ElementNode, cam: Camera): PostRegion | null {
+export function collectPostProcess(root: ElementNode, cam: Camera, scroll: ScrollMap): PostRegion | null {
   let found: PostRegion | null = null;
-  const walk = (n: ElementNode) => {
+  const walk = (n: ElementNode, sy: number) => {
     if (found) return;
     if (n.props.postProcess) {
-      found = { effect: n.props.postProcess, rect: [n.x * cam.scale + cam.tx, n.y * cam.scale + cam.ty, n.w * cam.scale, n.h * cam.scale] };
+      found = { effect: n.props.postProcess, rect: [n.x * cam.scale + cam.tx, (n.y - sy) * cam.scale + cam.ty, n.w * cam.scale, n.h * cam.scale] };
       return;
     }
-    for (const c of n.children) if (c.kind === "element") walk(c);
+    const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
+    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
   };
-  walk(root);
+  walk(root, 0);
   return found;
 }
 
-/** Particle emitter nodes (props.particles). World-space; the runtime simulates each. */
-export function collectParticles(root: ElementNode): ParticleNode[] {
+/** Particle emitter nodes (props.particles). World-space (minus scroll); the runtime simulates each. */
+export function collectParticles(root: ElementNode, scroll: ScrollMap): ParticleNode[] {
   const out: ParticleNode[] = [];
-  const walk = (n: ElementNode) => {
-    if (n.props.particles) out.push({ id: n.id, rect: [n.x, n.y, n.w, n.h], spec: n.props.particles });
-    for (const c of n.children) if (c.kind === "element") walk(c);
+  const walk = (n: ElementNode, sy: number) => {
+    if (n.props.particles) out.push({ id: n.id, rect: [n.x, n.y - sy, n.w, n.h], spec: n.props.particles });
+    const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
+    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
   };
-  walk(root);
+  walk(root, 0);
   return out;
 }
 

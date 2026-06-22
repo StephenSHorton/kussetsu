@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { GlassSpec, RGBA } from "../core/scene";
 import { glassTuning } from "../core/glassTuning";
+import { DemoSections } from "./MainPage";
 
 // Kussetsu's marketing site, built IN Kussetsu — DARK: a black field lit by drifting colorful
 // gradient lights (a full-screen WGSL background the glass actually REFRACTS), white type, and
@@ -387,6 +388,10 @@ export function MarketingPage() {
         <PaneSection vw={vw} t={t} />
         {features}
         {getStarted}
+        {/* the capability demos, folded in as further sections on a solid dark backing */}
+        <view style={{ width: "stretch", direction: "column", background: [0.03, 0.04, 0.08, 1] }}>
+          <DemoSections vw={vw} t={t} />
+        </view>
         {footer}
       </view>
       {nav}

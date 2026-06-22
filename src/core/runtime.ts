@@ -346,7 +346,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
 
     // Particles: CPU-simulate each emitter, persisting state per node id, then concatenate
     // into one instance buffer (world coords; the painter applies the camera + bloom).
-    const pNodes = collectParticles(root);
+    const pNodes = collectParticles(root, scrollY);
     particlesPresent = pNodes.length > 0;
     let particles: { data: Float32Array; count: number } | undefined;
     if (pNodes.length) {
@@ -389,7 +389,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       time: performance.now() / 1000,
       pointer: lastPointer,
       particles,
-      post: collectPostProcess(root, camera), // a node's postProcess prop → effect masked to its box
+      post: collectPostProcess(root, camera, scrollY), // a node's postProcess prop → effect masked to its box
       bgScroll: Math.max(0, ...scrollY.values()), // page scroll → the background shader scrolls with it
     });
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
