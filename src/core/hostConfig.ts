@@ -146,6 +146,7 @@ const hostConfig: any = {
 const Recon = ReactReconciler(hostConfig);
 
 export function createRoot(container: Container) {
+  // @ts-expect-error react-reconciler@0.29 runtime predates the 10-arg createContainer in @types/react-reconciler@0.33
   const root = Recon.createContainer(
     container, // containerInfo
     1, // ConcurrentRoot

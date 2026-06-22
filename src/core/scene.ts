@@ -149,7 +149,9 @@ declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
     interface IntrinsicElements {
+      // @ts-expect-error deliberately override SVG's <view> intrinsic with the Kussetsu host node
       view: NodeProps & { children?: unknown };
+      // @ts-expect-error deliberately override SVG's <text> intrinsic with the Kussetsu host node
       text: NodeProps & { children?: unknown };
     }
   }

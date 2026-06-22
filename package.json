@@ -2,21 +2,47 @@
   "name": "kussetsu",
   "version": "0.1.0",
   "description": "Kussetsu — React-authored UI painted entirely on the GPU (WebGPU), with the DOM as an invisible accessibility + input layer.",
-  "main": "src/core/index.ts",
-  "module": "src/core/index.ts",
-  "types": "src/core/index.ts",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite",
-    "build": "vite build"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "type": "module",
-  "private": "true",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
+    "prepublishOnly": "npm run build:lib"
+  },
+  "keywords": [
+    "webgpu",
+    "react",
+    "react-reconciler",
+    "renderer",
+    "ui",
+    "gpu",
+    "glass",
+    "shaders"
+  ],
+  "author": "Stephen Horton",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StephenSHorton/kussetsu.git"
+  },
+  "homepage": "https://stephenshorton.github.io/kussetsu/",
+  "peerDependencies": {
+    "react": "^18.2.0"
+  },
   "dependencies": {
-    "react": "^18.3.1",
     "react-reconciler": "^0.29.2",
     "yoga-layout": "^3.2.1"
   },
@@ -26,6 +52,7 @@
     "@types/react-reconciler": "^0.33.0",
     "@vitejs/plugin-react": "^6.0.2",
     "@webgpu/types": "^0.1.70",
+    "react": "^18.3.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   }
