@@ -57,53 +57,66 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
 // chromatic dispersion. Self-contained in one material quad. `backdrop: true` so it can sample
 // the scene behind it; `animated: true` for the spin.
 export const GLASS_CUBE = `
-fn boxI(ro: vec3f, rd: vec3f, rad: vec3f) -> vec2f {
-  let m = 1.0 / rd; let n = m * ro; let k = abs(m) * rad;
-  let t1 = -n - k; let t2 = -n + k;
-  return vec2f(max(max(t1.x, t1.y), t1.z), min(min(t2.x, t2.y), t2.z));
+fn sdRB(p: vec3f, b: f32, r: f32) -> f32 { // rounded-box distance field (soft corners + edges)
+  let q = abs(p) - vec3f(b) + vec3f(r);
+  return length(max(q, vec3f(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0) - r;
 }
-fn boxNin(ro: vec3f, rd: vec3f, rad: vec3f) -> vec3f {
-  let m = 1.0 / rd; let t1 = -(m * ro) - abs(m) * rad;
-  return -sign(rd) * step(t1.yzx, t1.xyz) * step(t1.zxy, t1.xyz);
+fn nrm(p: vec3f, b: f32, r: f32) -> vec3f {
+  let e = vec2f(0.0015, 0.0);
+  return normalize(vec3f(
+    sdRB(p + e.xyy, b, r) - sdRB(p - e.xyy, b, r),
+    sdRB(p + e.yxy, b, r) - sdRB(p - e.yxy, b, r),
+    sdRB(p + e.yyx, b, r) - sdRB(p - e.yyx, b, r)));
 }
-fn boxNout(ro: vec3f, rd: vec3f, rad: vec3f) -> vec3f {
-  let m = 1.0 / rd; let t2 = -(m * ro) + abs(m) * rad;
-  return sign(rd) * step(t2.xyz, t2.yzx) * step(t2.xyz, t2.zxy);
-}
-fn rotM(a: f32, b: f32) -> mat3x3<f32> {
-  let ca = cos(a); let sa = sin(a); let cb = cos(b); let sb = sin(b);
+fn rotM(a: f32, c: f32) -> mat3x3<f32> {
+  let ca = cos(a); let sa = sin(a); let cb = cos(c); let sb = sin(c);
   return mat3x3<f32>(ca, 0.0, -sa, 0.0, 1.0, 0.0, sa, 0.0, ca) * mat3x3<f32>(1.0, 0.0, 0.0, 0.0, cb, sb, 0.0, -sb, cb);
 }
 fn material(uv: vec2f, px: vec2f) -> vec4f {
-  let t = u.res.w * 0.4;
-  let q = (uv - 0.5) * 2.7;
+  let t = u.res.w * 0.35;
+  let q = (uv - 0.5) * 2.15;
   let ro0 = vec3f(q, 2.0);
   let rd0 = vec3f(0.0, 0.0, -1.0);
   let R = rotM(t, t * 0.6);
   let Ri = transpose(R);
   let ro = Ri * ro0;
   let rd = Ri * rd0;
-  let rad = vec3f(0.6);
-  let h = boxI(ro, rd, rad);
-  if (h.x > h.y || h.y < 0.0) { return vec4f(0.0); } // miss → fully transparent
-  let nIn = boxNin(ro, rd, rad);
-  let nInV = R * nIn;
-  let pE = ro + rd * h.x;
-  let rd2 = refract(rd, nIn, 1.0 / 1.5);
-  let pE2 = pE + rd2 * 0.001;
-  let nOut = boxNout(pE2, rd2, rad);
-  var dir = refract(rd2, -nOut, 1.5);
-  if (dot(dir, dir) < 0.01) { dir = reflect(rd2, -nOut); } // total internal reflection
+  let B = 0.55; let RAD = 0.20; // half-size + corner radius (well-rounded)
+  // raymarch to the front surface
+  var tt = 0.0; var hit = false;
+  for (var i = 0; i < 48; i = i + 1) {
+    let d = sdRB(ro + rd * tt, B, RAD);
+    if (d < 0.0008) { hit = true; break; }
+    tt = tt + d;
+    if (tt > 5.0) { break; }
+  }
+  if (!hit) { return vec4f(0.0); } // miss → fully transparent
+  let p1 = ro + rd * tt;
+  let n1 = nrm(p1, B, RAD);
+  let rd2 = refract(rd, n1, 1.0 / 1.5);
+  // march through the glass to the back surface
+  var ti = 0.02;
+  for (var i = 0; i < 30; i = i + 1) {
+    let d = sdRB(p1 + rd2 * ti, B, RAD);
+    if (d > -0.0008) { break; }
+    ti = ti + max(-d, 0.012);
+    if (ti > 5.0) { break; }
+  }
+  let p2 = p1 + rd2 * ti;
+  let n2 = nrm(p2, B, RAD);
+  var dir = refract(rd2, -n2, 1.5);
+  if (dot(dir, dir) < 0.01) { dir = reflect(rd2, -n2); } // total internal reflection
   let dv = R * dir;
-  let strength = u.rect.z * 0.34;
+  let strength = u.rect.z * 0.3;
   let base = px + dv.xy * strength;
   let disp = dv.xy * strength * 0.05;
   var col = vec3f(sampleBackdrop(base + disp).r, sampleBackdrop(base).g, sampleBackdrop(base - disp).b);
   col = mix(col, vec3f(0.72, 0.82, 1.0), 0.05) * 1.04;
-  let fres = pow(1.0 - max(0.0, nInV.z), 4.0);
-  col += vec3f(0.6, 0.78, 1.0) * fres * 0.55; // glowing edges
+  let nv = R * n1;
+  let fres = pow(1.0 - max(0.0, nv.z), 4.0);
+  col += vec3f(0.6, 0.78, 1.0) * fres * 0.5; // glowing rounded edges
   let L = normalize(vec3f(-0.4, 0.7, 0.6));
-  col += vec3f(1.0) * pow(max(0.0, dot(reflect(rd0, nInV), L)), 26.0) * 0.7; // specular glint
+  col += vec3f(1.0) * pow(max(0.0, dot(reflect(rd0, nv), L)), 28.0) * 0.7; // specular glint
   return vec4f(col, 1.0);
 }`;
 
@@ -159,21 +172,23 @@ function SectionHeading({ vw, title, sub }: { vw: number; title: string; sub: st
 }
 
 function Hero({ vw, vh }: { vw: number; vh: number }) {
-  const h = Math.max(760, vh);
-  const cube = 340;
+  const h = Math.max(860, vh);
+  const cube = Math.min(600, vw * 0.6);
   const cx = vw / 2;
+  const cubeY = 64;
+  const cubeMid = cubeY + cube / 2;
   return (
     <view style={{ width: "stretch", height: h }}>
-      {/* headline */}
-      <view style={{ absolute: { x: 0, y: Math.round(h * 0.12) }, width: vw, direction: "row", justify: "center" }}>
+      {/* headline — centered ON the cube so the cube refracts the big type */}
+      <view style={{ absolute: { x: 0, y: Math.round(cubeMid - 78) }, width: vw, direction: "row", justify: "center" }}>
         <view style={{ width: Math.min(880, vw - 80), direction: "column", align: "center" }}>
           <text role="heading" level={1} style={{ fontSize: 66, fontWeight: 800, color: INK }}>Interfaces, painted on the GPU.</text>
         </view>
       </view>
-      {/* a rotating glass cube ray-traced in a shader — refracts the lamp behind it, slow spin */}
-      <view material={{ shader: GLASS_CUBE, backdrop: true, animated: true }} style={{ absolute: { x: Math.round(cx - cube / 2), y: Math.round(h * 0.3) }, width: cube, height: cube }} />
+      {/* a rotating rounded glass cube ray-traced in a shader — overlaps & refracts the headline */}
+      <view material={{ shader: GLASS_CUBE, backdrop: true, animated: true }} style={{ absolute: { x: Math.round(cx - cube / 2), y: cubeY }, width: cube, height: cube }} />
       {/* subhead + CTAs */}
-      <view style={{ absolute: { x: 0, y: Math.round(h * 0.78) }, width: vw, direction: "row", justify: "center" }}>
+      <view style={{ absolute: { x: 0, y: Math.round(cubeY + cube + 28) }, width: vw, direction: "row", justify: "center" }}>
         <view style={{ width: Math.min(640, vw - 80), direction: "column", align: "center", gap: 24 }}>
           <text style={{ fontSize: 19, fontWeight: 500, color: SLATE }}>Kussetsu renders your React with WebGPU — refraction, shaders, real spring physics — while the DOM stays a clean, invisible layer for accessibility. Glass bending live light, the way CSS never could.</text>
           <view style={{ direction: "row", gap: 14, align: "center" }}>
