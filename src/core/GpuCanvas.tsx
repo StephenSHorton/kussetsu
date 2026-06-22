@@ -29,7 +29,8 @@ export interface GpuCanvasProps extends GpuRootOptions {
   className?: string;
   /** Inline style for the wrapper <div>, merged over the defaults (position/size). */
   style?: CSSProperties;
-  /** Rendered (as real HTML) when WebGPU is unavailable or the root fails to create. */
+  /** Rendered (as real HTML) when WebGPU is unavailable, the root fails to create, or the
+   *  GPU device is later lost. */
   fallback?: ReactNode;
   /** Called once with the `GpuRoot` after it's created — the imperative escape hatch. */
   onCreated?: (root: GpuRoot) => void;
@@ -48,6 +49,8 @@ export function GpuCanvas({
   pageScroll,
   textSelectable,
   background,
+  onDeviceLost,
+  onError,
 }: GpuCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [root, setRoot] = useState<GpuRoot | null>(null);
@@ -76,7 +79,17 @@ export function GpuCanvas({
       if (cancelled) return; // unmounted while waiting — never touch the canvas
       setFailed(false);
       try {
-        const r = await createGpuRoot(canvas, { camera, pageScroll, textSelectable, background });
+        const r = await createGpuRoot(canvas, {
+          camera,
+          pageScroll,
+          textSelectable,
+          background,
+          onDeviceLost: (info) => {
+            setFailed(true); // device lost → show the fallback ("rendering lost, reload")
+            onDeviceLost?.(info);
+          },
+          onError,
+        });
         if (cancelled) {
           r.destroy(); // unmounted while creating
           return;

@@ -43,6 +43,12 @@ export interface GpuRootOptions {
   /** Full-screen WGSL background shader (`fn material(uv,px)->vec4f`) rendered into the backdrop,
    *  so glass refracts it. Same template/helpers as props.material. */
   background?: string;
+  /** Called if the WebGPU device is lost (GPU crash/reset, sleep/wake, TDR). Kussetsu stops the
+   *  render loop so it doesn't paint a dead device; there is no auto-recovery — prompt a reload.
+   *  Not called for a normal `destroy()`. */
+  onDeviceLost?: (info: { reason: string; message: string }) => void;
+  /** Called with uncaptured GPU errors (validation/out-of-memory). Advisory; the loop continues. */
+  onError?: (error: unknown) => void;
 }
 
 export interface GpuRoot {
@@ -464,6 +470,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     (container.children.find((c) => c.kind === "element") as ElementNode | undefined) ?? null;
 
   function renderFrame() {
+    if (stopped) return; // device lost / torn down — don't touch a dead GPU (also guards frame())
     const root = rootElement();
     if (!root) return;
     const { cssWidth, cssHeight } = painter.size();
@@ -551,27 +558,52 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
 
   let rafId = 0;
   let timerId = 0;
+  let stopped = false; // set on teardown or device loss — halts both loops + painting
   const renderIfDirty = () => {
+    if (stopped) return;
     if (container.dirty) {
       container.dirty = false;
       renderFrame();
     }
   };
-  const rafLoop = () => { renderIfDirty(); rafId = requestAnimationFrame(rafLoop); };
+  const rafLoop = () => { if (stopped) return; renderIfDirty(); rafId = requestAnimationFrame(rafLoop); };
   // Fallback loop: requestAnimationFrame is throttled (and paused for background tabs) when
   // the window isn't OS-focused, which would freeze the canvas even though DOM input + React
   // state still update — so a click would change state but never repaint. A setTimeout loop
   // keeps dirty frames flushing (~5fps unfocused; the browser clamps it to ~1fps in a true
   // background tab) so interactions always repaint. rAF still drives smooth 60fps animation
   // when focused; renderIfDirty() no-ops when nothing changed, so the timer is nearly free.
-  const timerLoop = () => { renderIfDirty(); timerId = window.setTimeout(timerLoop, 200); };
+  const timerLoop = () => { if (stopped) return; renderIfDirty(); timerId = window.setTimeout(timerLoop, 200); };
   rafId = requestAnimationFrame(rafLoop);
   timerId = window.setTimeout(timerLoop, 200);
+
+  // WebGPU device loss (GPU crash/reset, sleep/wake, TDR) is otherwise a silent permanent
+  // freeze: React state + the a11y overlay keep updating while the canvas paints nothing, and
+  // the loop keeps calling into a dead device. Stop the loops and tell the consumer — there's
+  // no auto-recovery, so the app should prompt a reload. Reason "destroyed" is our own teardown,
+  // not a loss, so skip it.
+  let torndown = false;
+  painter.device.lost.then((info) => {
+    if (torndown || info.reason === "destroyed") return;
+    stopped = true;
+    cancelAnimationFrame(rafId);
+    clearTimeout(timerId);
+    opts.onDeviceLost?.({ reason: String(info.reason), message: info.message });
+  });
+  if (opts.onError) {
+    painter.device.addEventListener("uncapturederror", (e) => {
+      opts.onError!((e as GPUUncapturedErrorEvent).error);
+    });
+  }
 
   const onResize = () => {
     container.dirty = true;
   };
-  addEventListener("resize", onResize);
+  addEventListener("resize", onResize); // viewport / DPR / zoom changes
+  // Element-level resizes (a resizable panel, collapsing sidebar, animated modal) don't fire
+  // window 'resize', so without this the framebuffer goes stale until some unrelated repaint.
+  const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { container.dirty = true; }) : null;
+  resizeObserver?.observe(canvas);
 
   const reactRoot = createRoot(container);
 
@@ -584,9 +616,12 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       container.dirty = true;
     },
     destroy() {
+      stopped = true;
+      torndown = true; // suppress the device.lost handler if teardown destroys the device
       cancelAnimationFrame(rafId);
       cancelInertia();
       clearTimeout(timerId);
+      resizeObserver?.disconnect();
       removeEventListener("resize", onResize);
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("pointermove", onPointerMove);

@@ -48,7 +48,12 @@ function App() {
 
 async function boot() {
   const canvas = document.querySelector<HTMLCanvasElement>("#app")!;
-  const root = await createGpuRoot(canvas, { camera: false, textSelectable: true });
+  const root = await createGpuRoot(canvas, {
+    camera: false,
+    textSelectable: true,
+    onDeviceLost: (info) => console.warn(info.reason, info.message),
+    onError: (err) => console.error(err),
+  });
   root.render(<App />);
   root.destroy();
 }
@@ -65,6 +70,8 @@ function Root() {
       textSelectable
       fallback={<p>This app needs a WebGPU-capable browser.</p>}
       onCreated={(root: GpuRoot) => root.requestRender()}
+      onDeviceLost={(info) => console.warn("device lost:", info.reason)}
+      onError={(err) => console.error(err)}
     >
       <View style={{ padding: 28, background: rgba("#0b0e14") }}>
         <Text style={{ fontWeight: 800 }}>Hello, light.</Text>

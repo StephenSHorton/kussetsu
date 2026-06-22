@@ -100,7 +100,7 @@ boot(); // wrapped (not bare top-level await) so it compiles on every toolchain
 
 ### Options
 
-`createGpuRoot(canvas, opts)` takes a few flags:
+`createGpuRoot(canvas, opts)` (and the matching `<GpuCanvas>` props) take a few flags:
 
 - `camera` (default `true`) — pan by dragging empty space, zoom on the wheel.
   Pass `camera: false` for a fixed page.
@@ -109,6 +109,14 @@ boot(); // wrapped (not bare top-level await) so it compiles on every toolchain
 - `textSelectable` (default `false`) — all text is drag-selectable + copyable.
 - `background` — a full-screen WGSL background shader (`fn material(uv, px) -> vec4f`)
   rendered into the backdrop, so glass refracts it.
+- `onDeviceLost(info)` — the WebGPU device was lost (GPU crash/reset, sleep/wake, TDR).
+  Kussetsu stops the render loop so it never paints a dead device; there's **no
+  auto-recovery**, so prompt a reload. (`<GpuCanvas>` also shows its `fallback`.)
+- `onError(error)` — an uncaptured GPU error (validation / out-of-memory). Advisory.
+
+Resizing is automatic: Kussetsu watches the canvas with a `ResizeObserver` (so a canvas
+in a resizable panel / collapsing sidebar repaints at the new size), plus the window
+`resize` event for viewport / DPR / zoom changes.
 
 Any node with `overflow: "scroll"` is a scroll region: it's wheel- **and** drag/touch-scrollable
 with inertia. The canvas sets `touch-action: none` so Kussetsu owns the gesture on touch devices.

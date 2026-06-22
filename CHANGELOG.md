@@ -14,6 +14,11 @@ All notable changes to Kussetsu are documented here. This project adheres to
 - **Typed `<View>` / `<Text>` components** — the recommended authoring API. They render
   the same GPU host elements but type-check cleanly, fixing the `<view>` / `<text>` ↔
   React-SVG-intrinsic collision ([#2](https://github.com/StephenSHorton/kussetsu/issues/2)).
+- `onDeviceLost` / `onError` options (on `createGpuRoot` and `<GpuCanvas>`). On WebGPU
+  device loss Kussetsu now **stops the render loop** and notifies (and `<GpuCanvas>` shows
+  its `fallback`) instead of silently freezing while flooding the console.
+- Automatic resize: a `ResizeObserver` on the canvas repaints on element-level size changes
+  (resizable panels, collapsing sidebars), not just `window` resize.
 - `rgba(hexOrCss, alpha?)` — convert a hex / `rgb()` / named color into a Kussetsu
   `RGBA` tuple (0..1, straight alpha). Throws on an unparseable color.
 - `justify` now accepts `"space-between"`, `"space-around"`, and `"space-evenly"`.
