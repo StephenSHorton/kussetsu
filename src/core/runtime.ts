@@ -5,8 +5,9 @@
 //   const root = await createGpuRoot(canvas, { camera: false });
 //   root.render(<App />);   // App authored with <view>/<text> host elements
 //
-import type { ReactNode } from "react";
+import { createElement, type ReactNode } from "react";
 import { createRoot } from "./hostConfig";
+import { KussetsuContext, type KussetsuBridge } from "./context";
 import { Painter } from "./webgpu";
 import { ParticleSystem } from "./particles";
 import { SemanticsOverlay } from "./a11y";
@@ -74,6 +75,10 @@ export interface GpuRoot {
   /** Tear down: stop the loop, remove the overlay/input, unmount React. */
   destroy(): void;
 }
+
+/** The imperative controls a component gets from `useGpuRoot()` — the `GpuRoot` minus the
+ *  lifecycle methods (`render` / `destroy`), which a component shouldn't call on its own tree. */
+export type GpuControls = Omit<GpuRoot, "render" | "destroy">;
 
 /** Create a Kussetsu root that paints `canvas` on the GPU and bridges a11y + input.
  *  `canvas` must live inside a positioned parent (the overlay is placed over it). */
@@ -486,6 +491,11 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   const rootElement = (): ElementNode | null =>
     (container.children.find((c) => c.kind === "element") as ElementNode | undefined) ?? null;
 
+  // useFrame callbacks (run once per rAF tick, below) + useViewport subscribers (notified on resize).
+  const frameCallbacks = new Set<(dt: number) => void>();
+  const viewportSubs = new Set<() => void>();
+  let lastFrameTs = 0;
+
   function renderFrame() {
     if (stopped) return; // device lost / torn down — don't touch a dead GPU (also guards frame())
     const root = rootElement();
@@ -583,7 +593,20 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       renderFrame();
     }
   };
-  const rafLoop = () => { if (stopped) return; renderIfDirty(); rafId = requestAnimationFrame(rafLoop); };
+  // useFrame runs ONCE per animation frame (the rAF cadence) — not inside renderFrame, which the
+  // fallback timer below also reaches (that would double-tick callbacks, and let the ~5fps timer
+  // drive animation with an erratic dt when the tab is backgrounded). dt is clamped so a
+  // backgrounded-then-refocused tab / sleep-wake can't deliver a multi-second delta that teleports
+  // a `pos += vel * dt` animation — matching the particle sim's clamp.
+  const tickFrameCallbacks = () => {
+    if (!frameCallbacks.size) { lastFrameTs = 0; return; }
+    const now = performance.now();
+    const dt = Math.min(0.1, lastFrameTs ? (now - lastFrameTs) / 1000 : 1 / 60);
+    lastFrameTs = now;
+    for (const cb of frameCallbacks) cb(dt);
+    container.dirty = true; // animation → repaint this frame (rafLoop's renderIfDirty clears it)
+  };
+  const rafLoop = () => { if (stopped) return; tickFrameCallbacks(); renderIfDirty(); rafId = requestAnimationFrame(rafLoop); };
   // Fallback loop: requestAnimationFrame is throttled (and paused for background tabs) when
   // the window isn't OS-focused, which would freeze the canvas even though DOM input + React
   // state still update — so a click would change state but never repaint. A setTimeout loop
@@ -613,20 +636,23 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     });
   }
 
-  const onResize = () => {
+  const notifyResize = () => {
     container.dirty = true;
+    viewportSubs.forEach((cb) => cb()); // useViewport
   };
+  const onResize = notifyResize;
   addEventListener("resize", onResize); // viewport / DPR / zoom changes
   // Element-level resizes (a resizable panel, collapsing sidebar, animated modal) don't fire
   // window 'resize', so without this the framebuffer goes stale until some unrelated repaint.
-  const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => { container.dirty = true; }) : null;
+  const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(notifyResize) : null;
   resizeObserver?.observe(canvas);
 
   const reactRoot = createRoot(container);
 
-  return {
+  const rootApi: GpuRoot = {
     render(element) {
-      reactRoot.render(element);
+      // Wrap the tree in the bridge so useFrame / useViewport / useGpuRoot work inside it.
+      reactRoot.render(createElement(KussetsuContext.Provider, { value: bridge }, element));
     },
     frame: renderFrame,
     requestRender() {
@@ -683,9 +709,36 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       host.removeEventListener("pointercancel", endPan);
       host.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onCopy);
+      frameCallbacks.clear();
+      viewportSubs.clear();
       reactRoot.unmount();
       a11yHost.remove();
       editInput.remove();
     },
   };
+
+  // The bridge handed to hooks via context. `rootApi` is captured here (defined above); the
+  // provider in rootApi.render references it, and render only runs after this is assigned.
+  const bridge: KussetsuBridge = {
+    root: rootApi,
+    onFrame(cb) {
+      frameCallbacks.add(cb);
+      container.dirty = true; // kick the loop so the callback starts running
+      return () => {
+        frameCallbacks.delete(cb);
+      };
+    },
+    getViewport() {
+      const r = canvas.getBoundingClientRect();
+      return { width: Math.round(r.width), height: Math.round(r.height) };
+    },
+    subscribeViewport(cb) {
+      viewportSubs.add(cb);
+      return () => {
+        viewportSubs.delete(cb);
+      };
+    },
+  };
+
+  return rootApi;
 }

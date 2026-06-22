@@ -8,7 +8,7 @@
 //   const root = await createGpuRoot(canvas, { camera: false });
 //   root.render(<View><Text>Hello, light.</Text></View>);
 
-export { createGpuRoot, type GpuRoot, type GpuRootOptions } from "./runtime";
+export { createGpuRoot, type GpuRoot, type GpuControls, type GpuRootOptions } from "./runtime";
 
 // Declarative mount: drop `<GpuCanvas>` into a React app and it owns the canvas,
 // positioned wrapper, async createGpuRoot, StrictMode-safe teardown, and a WebGPU
@@ -34,3 +34,7 @@ export { glassTuning, GLASS_DEFAULTS, type GlassParams } from "./glassTuning";
 
 // Spring-physics animation primitive (interruptible).
 export { useSpring, type SpringConfig } from "./useSpring";
+
+// R3F-style hooks for components inside a Kussetsu tree: per-frame work (useFrame), the live
+// canvas size (useViewport), and the imperative root / camera (useGpuRoot).
+export { useFrame, useViewport, useGpuRoot } from "./hooks";

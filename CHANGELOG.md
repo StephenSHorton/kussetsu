@@ -7,6 +7,11 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **R3F-style hooks** for components inside a Kussetsu tree: `useFrame((dt) => …)` (per-frame
+  callback; the loop runs continuously while any is mounted, so it drives animation),
+  `useViewport()` (`{ width, height }`, re-renders on resize), and `useGpuRoot()` (the
+  imperative `GpuRoot` — camera / hitTest / …). The runtime now wraps the rendered tree in a
+  React context provider (context works across the custom reconciler).
 - **Percentage / proportional sizing.** `width` / `height` / `minWidth` / `maxWidth` /
   `minHeight` / `maxHeight` and a new `basis` (flex-basis) now accept a `"NN%"` string (a
   percentage of the parent) in addition to px — wired to Yoga's percent dimensions. `width`

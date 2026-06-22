@@ -5,7 +5,7 @@
 // BUILT package. The `@ts-expect-error` lines are negative guards: each MUST stay an
 // error, so if the typing ever goes loose (e.g. props collapse to `any`, or the
 // <view>/<text> SVG-intrinsic collision comes back), this file stops compiling.
-import { createGpuRoot, GpuCanvas, View, Text, rgba, useSpring } from "kussetsu";
+import { createGpuRoot, GpuCanvas, View, Text, rgba, useSpring, useFrame, useViewport, useGpuRoot } from "kussetsu";
 import type { GpuRoot, Style, RGBA, ParticleSpec, MaterialSpec, PostProcess, ViewProps, ActivateEvent } from "kussetsu";
 
 // ── color helper ──────────────────────────────────────────────────────────────
@@ -91,6 +91,21 @@ async function boot() {
 }
 void boot;
 void App;
+
+// ── R3F-style hooks (used inside the Kussetsu tree) ──────────────────────────────
+function Animated() {
+  const { width, height } = useViewport(); // { width, height } in css px
+  const root = useGpuRoot(); // imperative GpuRoot
+  useFrame((dt: number) => {
+    root.setCamera({ scale: 1 + Math.sin(dt) * 0 }); // dt is seconds since last frame
+  });
+  return (
+    <View style={{ width: width > 600 ? "50%" : "100%", height }}>
+      <Text>{`${width}x${height}`}</Text>
+    </View>
+  );
+}
+void Animated;
 
 // ── <GpuCanvas> — the declarative mount, must type-check clean ────────────────────
 function Root() {

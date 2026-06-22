@@ -139,9 +139,30 @@ The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, 
 
 Also exported: `rgba("#5C5CFF", alpha?)` (turn a hex / `rgb()` / named color into a
 Style-ready `RGBA` tuple — colors are `[r, g, b, a]` 0..1, so this saves the by-hand
-math), `useSpring` (interruptible spring-physics animation), and the live `glassTuning`
-object (`glassTuning.params` + `glassTuning.enabled` to override every glass panel at
-once, with `GLASS_DEFAULTS` as the reset baseline).
+math), and the live `glassTuning` object (`glassTuning.params` + `glassTuning.enabled` to
+override every glass panel at once, with `GLASS_DEFAULTS` as the reset baseline).
+
+### Hooks
+
+Inside a Kussetsu tree (rendered via `createGpuRoot` / `<GpuCanvas>`):
+
+- **`useFrame((dt) => …)`** — run a callback every animation frame (`dt` = seconds since the
+  last frame). The loop runs continuously while any `useFrame` is mounted, so it drives
+  animation. Prefer imperative updates inside it (e.g. `useGpuRoot().setCamera(...)`).
+- **`useViewport()`** → `{ width, height }` in CSS px; re-renders the component on resize.
+- **`useGpuRoot()`** → the imperative `GpuRoot` (`getCamera` / `setCamera` / `hitTest` / …).
+- **`useSpring(target, config?)`** — interruptible spring-physics animation of a number
+  (change the target mid-flight and it carries momentum — what CSS transitions can't do).
+
+```tsx
+import { useFrame, useGpuRoot, View } from "kussetsu";
+
+function Spinner() {
+  const root = useGpuRoot();
+  useFrame((dt) => root.setCamera({ scale: 1 + 0.1 * Math.sin(performance.now() / 500) }));
+  return <View glass={{ refraction: 0.1 }} style={{ width: 120, height: 120, radius: 18 }} />;
+}
+```
 
 ### GPU effects: glass, shaders, particles
 
