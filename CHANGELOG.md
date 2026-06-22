@@ -7,6 +7,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **Hover + richer activation.** `onPointerEnter` / `onPointerLeave` (hover) on any node,
+  and `onActivate` now receives an `ActivateEvent` (`button` + `metaKey` / `shiftKey` / …) —
+  so you can build hover/highlight and cmd-click in plain React without a shader.
+- **Per-side padding + gap axes.** `paddingX` / `paddingY` / `paddingTop` / `paddingRight` /
+  `paddingBottom` / `paddingLeft`, plus `rowGap` / `columnGap` on `Style`.
+- **Imperative `GpuRoot` escapes.** `getCamera()` / `setCamera({ tx?, ty?, scale? })` /
+  `resetCamera()`, `hitTest(x, y)` (node id at a canvas point), `resize()`, and `getCanvas()`.
 - **`<GpuCanvas>`** — the declarative way to mount Kussetsu in a React app. Owns the
   canvas + positioned wrapper, runs `createGpuRoot` in an effect, re-renders on updates,
   tears down on unmount (StrictMode-safe), and shows a `fallback` when WebGPU is absent.
@@ -32,6 +39,8 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 - Authoring API is now `<View>` / `<Text>` (capitalised). The lowercase `<view>` /
   `<text>` host elements still work at runtime as an untyped escape hatch.
+- `onActivate` signature widened `() => void` → `(e: ActivateEvent) => void` (backward
+  compatible — zero-arg handlers stay assignable).
 - `<View>` / `<Text>` `children` are typed `React.ReactNode` (was `unknown`).
 - README: complete copy-pasteable HTML/CSS scaffold + error handling in Quick start;
   corrected the publish / WebGPU-fallback / React-version / ESM / type-checking notes.

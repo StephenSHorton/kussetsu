@@ -197,9 +197,10 @@ export function collectSemantics(root: ElementNode, cam: Camera, scroll: ScrollM
   const out: SemNode[] = [];
   const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
     const s = n.props.style ?? {};
-    const role = n.props.role;
-    const draggable = n.props.draggable;
-    if (role || draggable) {
+    const p = n.props;
+    const role = p.role;
+    const draggable = p.draggable;
+    if (role || draggable || p.onActivate || p.onPointerEnter || p.onPointerLeave) {
       const x = n.x * cam.scale + cam.tx;
       const y = (n.y - sy) * cam.scale + cam.ty;
       const w = n.w * cam.scale;
@@ -212,12 +213,14 @@ export function collectSemantics(root: ElementNode, cam: Camera, scroll: ScrollM
           id: String(n.id),
           role,
           draggable,
-          onDrag: n.props.onDrag,
-          label: n.props.ariaLabel ?? firstText(n),
+          onDrag: p.onDrag,
+          label: p.ariaLabel ?? firstText(n),
           rect: { x, y, width: w, height: h },
           focusable: role === "button" || !!draggable,
-          level: n.props.level,
-          onActivate: n.props.onActivate,
+          level: p.level,
+          onActivate: p.onActivate,
+          onPointerEnter: p.onPointerEnter,
+          onPointerLeave: p.onPointerLeave,
         });
       }
     }

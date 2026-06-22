@@ -6,7 +6,7 @@
 // error, so if the typing ever goes loose (e.g. props collapse to `any`, or the
 // <view>/<text> SVG-intrinsic collision comes back), this file stops compiling.
 import { createGpuRoot, GpuCanvas, View, Text, rgba, useSpring } from "kussetsu";
-import type { GpuRoot, Style, RGBA, ParticleSpec, ViewProps } from "kussetsu";
+import type { GpuRoot, Style, RGBA, ParticleSpec, ViewProps, ActivateEvent } from "kussetsu";
 
 // ── color helper ──────────────────────────────────────────────────────────────
 const indigo: RGBA = rgba("#5C5CFF");
@@ -19,8 +19,11 @@ void named;
 const bar: Style = { direction: "row", justify: "space-between", gap: 12 };
 const dots: ParticleSpec = { count: 200, gravity: 20 };
 const headingProps: ViewProps = { role: "heading", level: 1, style: { fontWeight: 800 } };
+// per-side padding + gap axes
+const card: Style = { paddingX: 16, paddingY: 8, paddingTop: 12, rowGap: 6, columnGap: 10 };
 void bar;
 void headingProps;
+void card;
 
 // ── the documented authoring shape — must type-check clean ───────────────────────
 function App() {
@@ -32,13 +35,19 @@ function App() {
     >
       <Text style={{ fontWeight: 800, color: indigo }}>Hello, light.</Text>
       <View
+        role="button"
         draggable
         ariaLabel="card"
-        onActivate={() => {}}
+        onActivate={(e: ActivateEvent) => void (e.metaKey || e.shiftKey || e.button)}
+        onPointerEnter={() => {}}
+        onPointerLeave={() => {}}
         onDrag={(dx, dy) => void (dx + dy)}
         particles={dots}
-        style={{ absolute: { x: 0, y: lift }, width: 150, height: 92, justify: "space-between" }}
+        style={{ absolute: { x: 0, y: lift }, width: 150, height: 92, paddingX: 14, paddingY: 8, justify: "space-between" }}
       />
+      {/* zero-arg onActivate must still be assignable (backward compatible) */}
+      <View role="button" onActivate={() => {}} />
+      <View onPointerEnter={() => {}} style={{ padding: 8 }} />
       <View editable value="hi" onChange={(v) => void v} material={{ shader: "fn material() {}" }}>
         <Text>{"editable"}</Text>
       </View>
@@ -55,6 +64,18 @@ async function boot() {
     onError: (err) => console.error(err),
   });
   root.render(<App />);
+
+  // imperative escapes (P1-6)
+  const cam = root.getCamera(); // { tx, ty, scale }
+  root.setCamera({ scale: cam.scale * 1.5 });
+  root.setCamera({ tx: 0, ty: 0 });
+  root.resetCamera();
+  root.resize();
+  const id: number | null = root.hitTest(120, 80);
+  void id;
+  const c: HTMLCanvasElement = root.getCanvas();
+  void c;
+
   root.destroy();
 }
 void boot;

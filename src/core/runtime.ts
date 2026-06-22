@@ -52,12 +52,25 @@ export interface GpuRootOptions {
 }
 
 export interface GpuRoot {
-  /** Mount/replace the React tree. Author with the `<view>`/`<text>` host elements. */
+  /** Mount/replace the React tree. Author with the `<View>`/`<Text>` components. */
   render(element: ReactNode): void;
   /** Force a synchronous render now (handy in tests / backgrounded tabs). */
   frame(): void;
   /** Mark dirty; the animation loop renders on the next frame. */
   requestRender(): void;
+  /** The live pan/zoom camera (a copy — mutate via `setCamera`). */
+  getCamera(): Camera;
+  /** Pan/zoom the view. Partial — pass just `{ scale }` or `{ tx, ty }`. Repaints. */
+  setCamera(camera: Partial<Camera>): void;
+  /** Recenter + reset zoom to the identity transform. */
+  resetCamera(): void;
+  /** Re-measure the canvas + repaint (the `ResizeObserver` does this automatically;
+   *  call it after a synchronous layout change you know the observer will miss). */
+  resize(): void;
+  /** The id of the topmost node at a canvas-relative point (px), or null. */
+  hitTest(x: number, y: number): number | null;
+  /** The underlying `<canvas>` (e.g. to `toBlob()` it yourself after a `frame()`). */
+  getCanvas(): HTMLCanvasElement;
   /** Tear down: stop the loop, remove the overlay/input, unmount React. */
   destroy(): void;
 }
@@ -614,6 +627,43 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     frame: renderFrame,
     requestRender() {
       container.dirty = true;
+    },
+    getCamera() {
+      return { tx: camera.tx, ty: camera.ty, scale: camera.scale };
+    },
+    setCamera(next) {
+      if (next.tx != null) camera.tx = next.tx;
+      if (next.ty != null) camera.ty = next.ty;
+      if (next.scale != null) camera.scale = next.scale;
+      container.dirty = true;
+    },
+    resetCamera() {
+      camera.tx = 0;
+      camera.ty = 0;
+      camera.scale = 1;
+      container.dirty = true;
+    },
+    resize() {
+      container.dirty = true; // renderFrame re-reads the canvas size via painter.size()
+    },
+    hitTest(x, y) {
+      const root = rootElement();
+      if (!root) return null;
+      let hit: number | null = null;
+      const walk = (n: ElementNode, scrollOff: number) => {
+        const sx = n.x * camera.scale + camera.tx;
+        const sy = (n.y - scrollOff) * camera.scale + camera.ty;
+        const sw = n.w * camera.scale;
+        const sh = n.h * camera.scale;
+        if (x >= sx && x <= sx + sw && y >= sy && y <= sy + sh) hit = n.id; // deepest contained node wins
+        const childScroll = n.props.style?.overflow === "scroll" ? scrollOff + (scrollY.get(n.id) ?? 0) : scrollOff;
+        for (const c of n.children) if (c.kind === "element") walk(c, childScroll);
+      };
+      walk(root, 0);
+      return hit;
+    },
+    getCanvas() {
+      return canvas;
     },
     destroy() {
       stopped = true;

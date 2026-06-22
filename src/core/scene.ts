@@ -7,8 +7,16 @@ export type RGBA = [number, number, number, number]; // 0..1 each, STRAIGHT alph
 
 export interface Style {
   direction?: "row" | "column"; // main axis (default "column")
-  padding?: number;
-  gap?: number;
+  padding?: number; // all four sides
+  paddingX?: number; // left + right (overrides `padding` on the x axis)
+  paddingY?: number; // top + bottom (overrides `padding` on the y axis)
+  paddingTop?: number; // per-side (most specific — overrides padding / paddingX-Y)
+  paddingRight?: number;
+  paddingBottom?: number;
+  paddingLeft?: number;
+  gap?: number; // both axes
+  rowGap?: number; // between rows (overrides `gap` on the row axis)
+  columnGap?: number; // between columns (overrides `gap` on the column axis)
   width?: number | "stretch"; // fixed px, or fill parent cross-axis
   height?: number;
   align?: "start" | "center" | "end"; // children, cross axis
@@ -57,12 +65,24 @@ export interface MaterialSpec {
 
 export type Role = "button" | "heading" | "paragraph";
 
+// Payload for onActivate — the mouse button + modifier keys at activation (e.g. detect a
+// cmd/ctrl-click). Keyboard activation (Enter/Space) reports button 0 with the held modifiers.
+export interface ActivateEvent {
+  button: number; // 0 = primary/left (and keyboard)
+  altKey: boolean;
+  ctrlKey: boolean;
+  metaKey: boolean;
+  shiftKey: boolean;
+}
+
 export interface NodeProps {
   style?: Style;
   role?: Role;
   ariaLabel?: string;
   level?: number; // heading level
-  onActivate?: () => void;
+  onActivate?: (e: ActivateEvent) => void;
+  onPointerEnter?: () => void; // cursor entered this node's box (hover) — view becomes interactive
+  onPointerLeave?: () => void; // cursor left this node's box
   draggable?: boolean;
   onDrag?: (worldDx: number, worldDy: number) => void; // delta in WORLD px
   selectable?: boolean; // text node: wrap + click/drag to select

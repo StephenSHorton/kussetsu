@@ -2,19 +2,30 @@
 // transparent, correctly-tagged, focusable DOM proxy per interactive/semantic node,
 // positioned over the GPU-painted pixels. Screen readers, keyboard nav, focus, AND
 // pointer/keyboard DRAG all work even though every visible pixel is WebGPU.
-import type { Role } from "./scene";
+import type { ActivateEvent, Role } from "./scene";
 
 export interface SemNode {
   id: string;
-  role?: Role; // undefined => a plain interactive region (e.g. draggable)
+  role?: Role; // undefined => a plain interactive region (e.g. draggable / hover)
   label: string;
   rect: { x: number; y: number; width: number; height: number };
   focusable: boolean;
   level?: number;
   draggable?: boolean;
-  onActivate?: () => void;
+  onActivate?: (e: ActivateEvent) => void;
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
   onDrag?: (worldDx: number, worldDy: number) => void;
 }
+
+// Build an ActivateEvent from a click (MouseEvent) or keyboard (KeyboardEvent) activation.
+const activateEvent = (e: { button?: number; altKey: boolean; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): ActivateEvent => ({
+  button: e.button ?? 0,
+  altKey: e.altKey,
+  ctrlKey: e.ctrlKey,
+  metaKey: e.metaKey,
+  shiftKey: e.shiftKey,
+});
 
 export interface FocusBridge {
   setFocusRing(nodeId: string | null, keyboard: boolean): void;
@@ -49,7 +60,7 @@ export class SemanticsOverlay {
   }
 
   private interactive(node: SemNode): boolean {
-    return node.role === "button" || !!node.draggable;
+    return node.role === "button" || !!node.draggable || !!node.onActivate || !!node.onPointerEnter || !!node.onPointerLeave;
   }
 
   syncFromScene(nodes: readonly SemNode[]): void {
@@ -117,8 +128,10 @@ export class SemanticsOverlay {
 
     el.addEventListener("click", (e) => {
       e.preventDefault();
-      this.pool.get(node.id)?.node.onActivate?.();
+      this.pool.get(node.id)?.node.onActivate?.(activateEvent(e));
     });
+    el.addEventListener("pointerenter", () => this.pool.get(node.id)?.node.onPointerEnter?.());
+    el.addEventListener("pointerleave", () => this.pool.get(node.id)?.node.onPointerLeave?.());
 
     if (node.draggable) {
       let dragging = false;
@@ -155,7 +168,7 @@ export class SemanticsOverlay {
       if (!cur) return;
       if ((e.key === "Enter" || e.key === " ") && cur.role !== "button") {
         e.preventDefault();
-        cur.onActivate?.();
+        cur.onActivate?.(activateEvent(e));
       }
       if (cur.draggable) {
         const step = 24;

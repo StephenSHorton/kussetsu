@@ -45,8 +45,19 @@ function applyStyle(yn: YogaNode, s: Style = {}): void {
   yn.setJustifyContent(JUSTIFY[s.justify ?? "start"]);
   yn.setAlignItems(ALIGN[s.align ?? "start"]);
   if (s.wrap) yn.setFlexWrap(Wrap.Wrap);
-  if (s.padding) yn.setPadding(Edge.All, s.padding);
-  if (s.gap) yn.setGap(Gutter.All, s.gap);
+  // Padding: All < Horizontal/Vertical < per-side — Yoga resolves edge specificity, so
+  // setting several lets the more specific one win (e.g. padding + paddingTop).
+  if (s.padding != null) yn.setPadding(Edge.All, s.padding);
+  if (s.paddingX != null) yn.setPadding(Edge.Horizontal, s.paddingX);
+  if (s.paddingY != null) yn.setPadding(Edge.Vertical, s.paddingY);
+  if (s.paddingTop != null) yn.setPadding(Edge.Top, s.paddingTop);
+  if (s.paddingRight != null) yn.setPadding(Edge.Right, s.paddingRight);
+  if (s.paddingBottom != null) yn.setPadding(Edge.Bottom, s.paddingBottom);
+  if (s.paddingLeft != null) yn.setPadding(Edge.Left, s.paddingLeft);
+  // Gap: both axes, then per-axis override.
+  if (s.gap != null) yn.setGap(Gutter.All, s.gap);
+  if (s.rowGap != null) yn.setGap(Gutter.Row, s.rowGap);
+  if (s.columnGap != null) yn.setGap(Gutter.Column, s.columnGap);
 
   if (typeof s.width === "number") yn.setWidth(s.width);
   else if (s.width === "stretch") yn.setAlignSelf(Align.Stretch);

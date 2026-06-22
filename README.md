@@ -86,7 +86,7 @@ import { createGpuRoot, View, Text } from "kussetsu";
 async function boot() {
   const canvas = document.querySelector<HTMLCanvasElement>("#app")!;
   try {
-    const root = await createGpuRoot(canvas); // returns { render, frame, requestRender, destroy }
+    const root = await createGpuRoot(canvas); // { render, frame, requestRender, getCamera, setCamera, hitTest, … }
     root.render(<View style={{ padding: 28 }}><Text>Hello, light.</Text></View>);
   } catch (err) {
     // No WebGPU (Firefox without the flag, old Safari, headless CI) => createGpuRoot
@@ -120,6 +120,19 @@ in a resizable panel / collapsing sidebar repaints at the new size), plus the wi
 
 Any node with `overflow: "scroll"` is a scroll region: it's wheel- **and** drag/touch-scrollable
 with inertia. The canvas sets `touch-action: none` so Kussetsu owns the gesture on touch devices.
+
+### Interactivity & imperative control
+
+Nodes take `onActivate(e)` (click / Enter / Space — `e` carries the `button` + `metaKey` /
+`shiftKey` / … modifiers), `onPointerEnter` / `onPointerLeave` (hover), `onDrag`, and
+`editable` + `value` + `onChange` for text fields. A node with any of these is interactive
+(its box captures pointer events). For layout, `padding` has per-side variants
+(`paddingX` / `paddingY` / `paddingTop` / `paddingRight` / `paddingBottom` / `paddingLeft`)
+and `gap` has `rowGap` / `columnGap`.
+
+The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, ty?, scale? })`
+/ `resetCamera()` to drive pan-zoom, `hitTest(x, y)` (the node id at a canvas point),
+`resize()`, and `getCanvas()`.
 
 Also exported: `rgba("#5C5CFF", alpha?)` (turn a hex / `rgb()` / named color into a
 Style-ready `RGBA` tuple — colors are `[r, g, b, a]` 0..1, so this saves the by-hand
