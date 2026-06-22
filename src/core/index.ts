@@ -10,6 +10,11 @@
 
 export { createGpuRoot, type GpuRoot, type GpuRootOptions } from "./runtime";
 
+// Declarative mount: drop `<GpuCanvas>` into a React app and it owns the canvas,
+// positioned wrapper, async createGpuRoot, StrictMode-safe teardown, and a WebGPU
+// fallback. `createGpuRoot` stays the lower-level escape hatch.
+export { GpuCanvas, type GpuCanvasProps } from "./GpuCanvas";
+
 // The typed authoring API. `<View>` (a box) and `<Text>` (a string) are the GPU host
 // elements wrapped so they type-check cleanly (the lowercase `<view>`/`<text>` intrinsics
 // collide with React's SVG typings — see ./components).
