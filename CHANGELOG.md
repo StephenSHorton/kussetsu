@@ -7,6 +7,10 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`<GpuCanvas>`** — the declarative way to mount Kussetsu in a React app. Owns the
+  canvas + positioned wrapper, runs `createGpuRoot` in an effect, re-renders on updates,
+  tears down on unmount (StrictMode-safe), and shows a `fallback` when WebGPU is absent.
+  `createGpuRoot` stays the lower-level escape hatch.
 - **Typed `<View>` / `<Text>` components** — the recommended authoring API. They render
   the same GPU host elements but type-check cleanly, fixing the `<view>` / `<text>` ↔
   React-SVG-intrinsic collision ([#2](https://github.com/StephenSHorton/kussetsu/issues/2)).

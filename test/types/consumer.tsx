@@ -5,8 +5,8 @@
 // BUILT package. The `@ts-expect-error` lines are negative guards: each MUST stay an
 // error, so if the typing ever goes loose (e.g. props collapse to `any`, or the
 // <view>/<text> SVG-intrinsic collision comes back), this file stops compiling.
-import { createGpuRoot, View, Text, rgba, useSpring } from "kussetsu";
-import type { Style, RGBA, ParticleSpec, ViewProps } from "kussetsu";
+import { createGpuRoot, GpuCanvas, View, Text, rgba, useSpring } from "kussetsu";
+import type { GpuRoot, Style, RGBA, ParticleSpec, ViewProps } from "kussetsu";
 
 // ── color helper ──────────────────────────────────────────────────────────────
 const indigo: RGBA = rgba("#5C5CFF");
@@ -55,7 +55,30 @@ async function boot() {
 void boot;
 void App;
 
+// ── <GpuCanvas> — the declarative mount, must type-check clean ────────────────────
+function Root() {
+  return (
+    <GpuCanvas
+      className="stage"
+      style={{ width: "100vw", height: "100vh" }}
+      camera={false}
+      textSelectable
+      fallback={<p>This app needs a WebGPU-capable browser.</p>}
+      onCreated={(root: GpuRoot) => root.requestRender()}
+    >
+      <View style={{ padding: 28, background: rgba("#0b0e14") }}>
+        <Text style={{ fontWeight: 800 }}>Hello, light.</Text>
+      </View>
+    </GpuCanvas>
+  );
+}
+void Root;
+
 // ── negative guards (each line MUST remain a type error) ─────────────────────────
+
+// @ts-expect-error camera is a boolean, not a string.
+const badCanvas = <GpuCanvas camera="yes" />;
+void badCanvas;
 
 // @ts-expect-error background is an RGBA tuple, not a CSS string — use rgba("#fff").
 const badBg = <View style={{ background: "#ffffff" }} />;

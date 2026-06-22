@@ -29,13 +29,45 @@ npm i kussetsu
 
 ## Quick start
 
-You write ordinary React. The only new vocabulary is two components —
-`<View>` (a box) and `<Text>` (a string) — plus a GPU root to mount onto.
+You write ordinary React. The only new vocabulary is two components — `<View>` (a box)
+and `<Text>` (a string) — mounted with `<GpuCanvas>`.
 
-First, the page. The `<canvas>` needs a **non-zero CSS size** inside a
-**positioned parent** — Kussetsu sizes the framebuffer from the canvas's CSS box and
-lays the invisible accessibility/input overlay directly over it. Don't set the canvas
-`width`/`height` HTML attributes; Kussetsu owns the framebuffer size + devicePixelRatio.
+```tsx
+import { GpuCanvas, View, Text } from "kussetsu";
+
+export default function App() {
+  return (
+    <GpuCanvas
+      style={{ width: "100vw", height: "100vh" }}
+      fallback={<p>This app needs a WebGPU-capable browser.</p>}
+    >
+      <View glass={{ refraction: 0.1, dispersion: 0.07 }}
+        style={{ padding: 28, radius: 22, gap: 10 }}>
+        <Text style={{ fontWeight: 800 }}>Hello, light.</Text>
+      </View>
+    </GpuCanvas>
+  );
+}
+```
+
+`<GpuCanvas>` creates its own correctly-sized, positioned `<canvas>`, spins up the GPU
+root, paints your `<View>`/`<Text>` tree into it, re-renders on updates, and tears it all
+down on unmount (StrictMode-safe). On a browser without WebGPU it renders `fallback`
+instead. `<View>` / `<Text>` are fully typed — `style`, `glass`, `onActivate`, and friends
+all autocomplete and type-check.
+
+> **React / Next.** `<GpuCanvas>` is a client component. In the Next.js App Router, put
+> `"use client"` at the top of the file that renders it (as with any interactive
+> component). It sizes itself to its wrapper — give the wrapper a size via `style` /
+> `className`, or let it fill a sized parent (`width`/`height` default to `100%`).
+
+### Mounting it yourself (vanilla / non-React)
+
+`createGpuRoot` is the lower-level escape hatch `<GpuCanvas>` is built on — use it for a
+non-React entry point or full control. You supply the `<canvas>`: it needs a **non-zero
+CSS size** inside a **positioned parent** (Kussetsu sizes the framebuffer from the canvas's
+CSS box and lays the invisible a11y/input overlay over it; don't set the canvas
+`width`/`height` attributes — Kussetsu owns the framebuffer size + devicePixelRatio).
 
 ```html
 <div id="stage">
@@ -48,25 +80,14 @@ lays the invisible accessibility/input overlay directly over it. Don't set the c
 </style>
 ```
 
-Then the React:
-
 ```tsx
 import { createGpuRoot, View, Text } from "kussetsu";
-
-function App() {
-  return (
-    <View glass={{ refraction: 0.1, dispersion: 0.07 }}
-      style={{ padding: 28, radius: 22, gap: 10 }}>
-      <Text style={{ fontWeight: 800 }}>Hello, light.</Text>
-    </View>
-  );
-}
 
 async function boot() {
   const canvas = document.querySelector<HTMLCanvasElement>("#app")!;
   try {
-    const root = await createGpuRoot(canvas);
-    root.render(<App />);
+    const root = await createGpuRoot(canvas); // returns { render, frame, requestRender, destroy }
+    root.render(<View style={{ padding: 28 }}><Text>Hello, light.</Text></View>);
   } catch (err) {
     // No WebGPU (Firefox without the flag, old Safari, headless CI) => createGpuRoot
     // REJECTS. There's no automatic fallback — render your own HTML instead.
@@ -74,17 +95,8 @@ async function boot() {
     console.error(err);
   }
 }
-boot();
+boot(); // wrapped (not bare top-level await) so it compiles on every toolchain
 ```
-
-That's the whole API surface to get pixels on screen: `createGpuRoot(canvas, opts?)`
-returns a `GpuRoot` with `render()`, `frame()`, `requestRender()`, and `destroy()`.
-`<View>` / `<Text>` are fully typed — `style`, `glass`, `onActivate`, and friends all
-autocomplete and type-check.
-
-> The mount is wrapped in `boot()` rather than a bare top-level `await` so it compiles
-> on every toolchain (CRA/Jest/older targets don't allow top-level `await`). In a React
-> app, run the same `createGpuRoot` → `render` → `destroy` cycle from a `useEffect`.
 
 ### Options
 
