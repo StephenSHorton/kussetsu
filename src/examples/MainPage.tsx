@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useSpring } from "../core/useSpring";
 import type { MaterialSpec, RGBA } from "../core/scene";
 import { AURORA, PLASMA, HOLOGRAPHIC, RIPPLE, LOUPE } from "./FxGallery";
+import { isMobile, clampN, fluid } from "./responsive";
 
 // The one-page showcase. A tall scrolling column of sections (pageScroll), each showing
 // something CSS structurally can't do: shader materials, real spring physics + squircles,
@@ -14,13 +15,27 @@ const WHITE: RGBA = [0.97, 0.98, 1, 1];
 const MUTED: RGBA = [0.6, 0.65, 0.78, 1];
 const FAINT: RGBA = [0.45, 0.5, 0.64, 1];
 
-function Heading({ title, sub }: { title: string; sub: string }) {
+function Heading({ vw, title, sub }: { vw: number; title: string; sub: string }) {
+  const mobile = isMobile(vw);
   return (
-    <view style={{ width: "stretch", direction: "column", gap: 7, padding: 44 }}>
-      <text role="heading" level={2} style={{ fontSize: 32, fontWeight: 800, color: WHITE }}>{title}</text>
-      <text style={{ maxWidth: 720, fontSize: 16, fontWeight: 500, color: MUTED }}>{sub}</text>
+    <view style={{ width: "stretch", direction: "column", gap: 7, padding: mobile ? 24 : 44 }}>
+      <text role="heading" level={2} style={{ fontSize: fluid(vw, 0.07, 24, 32), fontWeight: 800, color: WHITE }}>{title}</text>
+      <text style={{ maxWidth: Math.min(720, vw - (mobile ? 48 : 88)), fontSize: mobile ? 15 : 16, fontWeight: 500, color: MUTED }}>{sub}</text>
     </view>
   );
+}
+
+// Rough rendered height of a <Heading> (its sub wraps to more lines as vw shrinks). FxSection
+// uses this to start its absolutely-positioned band backdrop BELOW the heading rather than
+// overlapping the wrapped subtext on mobile. The 0.55 char-advance factor over-estimates line
+// count slightly, so the bands never creep up under the heading.
+function estHeadingH(vw: number, sub: string): number {
+  const mobile = isMobile(vw);
+  const titleH = fluid(vw, 0.07, 24, 32) * 1.35;
+  const subFont = mobile ? 15 : 16;
+  const subW = Math.min(720, vw - (mobile ? 48 : 88));
+  const subLines = Math.max(1, Math.ceil((sub.length * subFont * 0.55) / subW));
+  return (mobile ? 24 : 44) * 2 + titleH + 7 + subLines * subFont * 1.35;
 }
 
 // ── Hero ────────────────────────────────────────────────────────────────────────
@@ -41,25 +56,36 @@ const FX_BANDS: { word: string; color: RGBA }[] = [
   { word: "BACKDROP-FILTER COULD NEVER", color: [0.86, 0.32, 0.56, 1] },
 ];
 const TILE_W = 248, TILE_H = 178, GAP = 22;
+const SHADER_SUB = "Every panel's fill is a hand-written WGSL fragment shader. Some reach back into the live scene behind them and bend it — a ripple, a magnifying loupe — a thing CSS backdrop-filter was never built to do.";
 
 function FxSection({ vw }: { vw: number }) {
-  const cols = 3;
-  const gridW = cols * TILE_W + (cols - 1) * GAP;
+  const mobile = isMobile(vw);
+  const cols = mobile ? 2 : 3;
+  const gap = mobile ? 14 : GAP;
+  const tileW = mobile ? Math.floor((Math.min(vw - 32, 520) - gap) / 2) : TILE_W;
+  const tileH = mobile ? Math.round(tileW * 0.72) : TILE_H;
+  const rows = Math.ceil(FX_TILES.length / cols);
+  const gridW = cols * tileW + (cols - 1) * gap;
   const gridX = Math.round((vw - gridW) / 2);
-  const bandsTop = 150, bandsH = 620;
+  const gridH = rows * tileH + (rows - 1) * gap;
+  // Start the bands below the heading — on mobile the sub wraps to several lines, so a flat 124 let
+  // the first band cover the heading's bottom. estHeadingH tracks the wrapped height per width.
+  const bandsTop = mobile ? Math.round(estHeadingH(vw, SHADER_SUB) + 16) : 150;
+  const bandsH = Math.max(mobile ? 420 : 620, gridH + 80); // bands must be tall enough to frame the grid
+  const sectionH = bandsTop + bandsH + (mobile ? 28 : 40);
   return (
-    <view style={{ width: "stretch", height: 820, direction: "column" }}>
-      <Heading title="Shaders as Materials" sub="Every panel's fill is a hand-written WGSL fragment shader. Some reach back into the live scene behind them and bend it — a ripple, a magnifying loupe — a thing CSS backdrop-filter was never built to do." />
+    <view style={{ width: "stretch", height: sectionH, direction: "column" }}>
+      <Heading vw={vw} title="Shaders as Materials" sub={SHADER_SUB} />
       {/* textured backdrop so the sampling materials have detail to bend/magnify */}
       <view style={{ absolute: { x: 0, y: bandsTop }, width: vw, height: bandsH, direction: "column", overflow: "hidden" }}>
         {FX_BANDS.map((b, i) => (
-          <view key={i} style={{ width: "stretch", grow: 1, background: b.color, direction: "column", justify: "center", padding: 36, overflow: "hidden" }}>
-            <text style={{ fontSize: 34, fontWeight: 800, color: INK }}>{(b.word + "   ").repeat(5)}</text>
+          <view key={i} style={{ width: "stretch", grow: 1, background: b.color, direction: "column", justify: "center", padding: mobile ? 20 : 36, overflow: "hidden" }}>
+            <text style={{ fontSize: mobile ? 22 : 34, fontWeight: 800, color: INK }}>{(b.word + "   ").repeat(5)}</text>
           </view>
         ))}
       </view>
       {/* the tiles */}
-      <view style={{ absolute: { x: gridX, y: bandsTop + Math.round((bandsH - (2 * TILE_H + GAP)) / 2) }, width: gridW, direction: "row", wrap: true, gap: GAP }}>
+      <view style={{ absolute: { x: gridX, y: bandsTop + Math.round((bandsH - gridH) / 2) }, width: gridW, direction: "row", wrap: true, gap }}>
         {FX_TILES.map((t) => {
           const inner = (
             <view style={{ grow: 1, width: "stretch", direction: "column", justify: "end", padding: 14, gap: 2 }}>
@@ -67,7 +93,7 @@ function FxSection({ vw }: { vw: number }) {
               <text style={{ fontSize: 12, fontWeight: 600, color: [0.85, 0.88, 0.98, 0.85] }}>{t.note}</text>
             </view>
           );
-          const style = { width: TILE_W, height: TILE_H, shrink: 0, radius: 18, cornerSmoothing: 0.6, direction: "column" } as const;
+          const style = { width: tileW, height: tileH, shrink: 0, radius: 18, cornerSmoothing: 0.6, direction: "column" } as const;
           return t.glass
             ? <view key={t.name} glass={{ refraction: 0.13, dispersion: 0.07, blur: 4, tint: 0.05, rim: 16 }} style={style}>{inner}</view>
             : <view key={t.name} material={t.spec} style={style}>{inner}</view>;
@@ -91,23 +117,26 @@ const SMOOTH = { stiffness: 190, damping: 22 };
 const CHIP: RGBA = [0.12, 0.14, 0.22, 1];
 const CHIP_ON: RGBA = [0.3, 0.36, 0.62, 1];
 
-function SpringSection() {
+function SpringSection({ vw }: { vw: number }) {
+  const mobile = isMobile(vw);
+  // Scale the shapes (largest preset is 400px wide) so they fit a phone; springs just re-target.
+  const scale = mobile ? clampN(0.55, (vw - 40) / 440, 1) : 1;
   const [i, setI] = useState(1);
   const p = PRESETS[i];
-  const w = useSpring(p.w, BOUNCY), h = useSpring(p.h, BOUNCY);
-  const radius = useSpring(p.radius, BOUNCY), sm = useSpring(p.sm, SMOOTH);
+  const w = useSpring(p.w * scale, BOUNCY), h = useSpring(p.h * scale, BOUNCY);
+  const radius = useSpring(p.radius * scale, BOUNCY), sm = useSpring(p.sm, SMOOTH);
   const cr = useSpring(p.color[0], SMOOTH), cg = useSpring(p.color[1], SMOOTH), cb = useSpring(p.color[2], SMOOTH);
   return (
-    <view style={{ width: "stretch", height: 720, direction: "column", background: INK }}>
-      <Heading title="Springs and Squircles" sub="Real, interruptible spring physics: click a shape and retarget it mid-flight — its momentum carries through. The corners are true superellipse squircles — continuous curvature, not stitched circular arcs. Neither has a CSS spelling." />
-      <view style={{ grow: 1, width: "stretch", direction: "column", align: "center", justify: "center", gap: 44 }}>
-        <view style={{ width: 440, height: 290, direction: "row", align: "center", justify: "center" }}>
+    <view style={{ width: "stretch", height: mobile ? 620 : 720, direction: "column", background: INK }}>
+      <Heading vw={vw} title="Springs and Squircles" sub="Real, interruptible spring physics: click a shape and retarget it mid-flight — its momentum carries through. The corners are true superellipse squircles — continuous curvature, not stitched circular arcs. Neither has a CSS spelling." />
+      <view style={{ grow: 1, width: "stretch", direction: "column", align: "center", justify: "center", gap: mobile ? 28 : 44, padding: mobile ? 16 : 0 }}>
+        <view style={{ width: Math.round(440 * scale), height: Math.round(290 * scale), direction: "row", align: "center", justify: "center" }}>
           <view style={{ width: Math.round(w), height: Math.round(h), radius, cornerSmoothing: sm, background: [cr, cg, cb, 1] }} />
         </view>
-        <view style={{ direction: "row", gap: 12 }}>
+        <view style={{ direction: "row", wrap: true, justify: "center", gap: mobile ? 8 : 12, maxWidth: Math.min(520, vw - 32) }}>
           {PRESETS.map((pp, idx) => (
             <view key={pp.name} role="button" ariaLabel={`Morph to ${pp.name}`} onActivate={() => setI(idx)}
-              style={{ height: 44, shrink: 0, direction: "row", align: "center", justify: "center", padding: 18, radius: 13, cornerSmoothing: 0.6, background: idx === i ? CHIP_ON : CHIP }}>
+              style={{ height: 44, shrink: 0, direction: "row", align: "center", justify: "center", padding: mobile ? 14 : 18, radius: 13, cornerSmoothing: 0.6, background: idx === i ? CHIP_ON : CHIP }}>
               <text style={{ fontSize: 14, fontWeight: 700, color: idx === i ? WHITE : [0.78, 0.82, 0.94, 1] }}>{pp.name}</text>
             </view>
           ))}
@@ -128,11 +157,12 @@ const DRIFT: { color: RGBA; w: number; h: number; r: number; y: number; speed: n
 ];
 
 function GlassSection({ vw, t }: { vw: number; t: number }) {
+  const mobile = isMobile(vw);
   const sectionH = 600, contentTop = 150, span = vw + 280;
-  const panelW = Math.min(520, vw - 120), panelH = 220;
+  const panelW = Math.min(520, vw - (mobile ? 40 : 120)), panelH = 220;
   return (
     <view style={{ width: "stretch", height: sectionH, direction: "column", background: INK }}>
-      <Heading title="Glass Over Anything" sub="Because we own the entire framebuffer, a single sheet of glass refracts and disperses whatever moves behind it. Light splits where it bends — a depth backdrop-filter, which only blurs, can never reach." />
+      <Heading vw={vw} title="Glass Over Anything" sub="Because we own the entire framebuffer, a single sheet of glass refracts and disperses whatever moves behind it. Light splits where it bends — a depth backdrop-filter, which only blurs, can never reach." />
       {DRIFT.map((c, idx) => {
         const x = ((c.speed * t + idx * 360) % span + span) % span - 140;
         return <view key={idx} style={{ absolute: { x: Math.round(x), y: contentTop + c.y }, width: c.w, height: c.h, radius: c.r, cornerSmoothing: 0.5, background: c.color }} />;
@@ -151,7 +181,7 @@ function ParticleSection({ vw }: { vw: number }) {
   const sectionH = 580, top = 160;
   return (
     <view style={{ width: "stretch", height: sectionH, direction: "column", background: INK }}>
-      <Heading title="Particles and Bloom" sub="Thousands of GPU particles in one instanced draw, alive to your cursor — sweep through to stir and plow them. A bloom pass lets the brightest ones spill their glow into the dark." />
+      <Heading vw={vw} title="Particles and Bloom" sub="Thousands of GPU particles in one instanced draw, alive to your cursor — sweep through to stir and plow them. A bloom pass lets the brightest ones spill their glow into the dark." />
       {/* the emitter is an invisible box; the field is drawn (and camera-scrolled) by the painter.
           postProcess scopes the bloom to THIS box only — the rest of the page stays crisp. */}
       <view
@@ -223,15 +253,15 @@ const NATIVE_CODE: CodeLine[] = [
   [{ text: "</view>", kind: "tag" }],
 ];
 
-function CodeCol({ label, accent, code, w }: { label: string; accent: RGBA; code: CodeLine[]; w: number }) {
+function CodeCol({ label, accent, code, w, mobile }: { label: string; accent: RGBA; code: CodeLine[]; w: number; mobile?: boolean }) {
   return (
     <view style={{ width: w, direction: "column", gap: 10 }}>
       <text style={{ fontSize: 13, fontWeight: 700, color: accent }}>{label}</text>
-      <view style={{ width: "stretch", grow: 1, radius: 14, cornerSmoothing: 0.6, background: [0.06, 0.07, 0.12, 1], padding: 20, direction: "column", gap: 3 }}>
+      <view style={{ width: "stretch", grow: 1, radius: 14, cornerSmoothing: 0.6, background: [0.06, 0.07, 0.12, 1], padding: mobile ? 16 : 20, direction: "column", gap: 3 }}>
         {code.map((line, i) => (
           <view key={i} style={{ direction: "row" }}>
             {line.map((seg, j) => (
-              <text key={j} style={{ fontSize: 13, fontWeight: 500, color: seg.kind ? CODE_COLOR[seg.kind] : [0.78, 0.82, 0.92, 1] }}>{seg.text}</text>
+              <text key={j} style={{ fontSize: mobile ? 12 : 13, fontWeight: 500, color: seg.kind ? CODE_COLOR[seg.kind] : [0.78, 0.82, 0.92, 1] }}>{seg.text}</text>
             ))}
           </view>
         ))}
@@ -241,16 +271,18 @@ function CodeCol({ label, accent, code, w }: { label: string; accent: RGBA; code
 }
 
 function MigrateSection({ vw }: { vw: number }) {
-  const colW = Math.min(440, (Math.min(980, vw - 80) - 30) / 2);
+  const mobile = isMobile(vw);
+  // Two side-by-side code columns don't fit a phone — stack them, each full width.
+  const colW = mobile ? Math.min(460, vw - 32) : Math.min(440, (Math.min(980, vw - 80) - 30) / 2);
   return (
-    <view style={{ width: "stretch", height: 820, direction: "column", background: INK }}>
-      <Heading title="Native Vocabulary, or Migrate" sub="Author in the native tongue — <view> and <text> with a plain style object, no cascade. Or bring your existing HTML and Tailwind React, and a build-time compat layer maps it onto the GPU so you migrate one piece at a time. The same card, both ways, painting the identical result below." />
-      <view style={{ width: "stretch", direction: "row", align: "start", justify: "center", gap: 30 }}>
-        <CodeCol label="HTML + TAILWIND — the familiar way" accent={[0.5, 0.78, 0.62, 1]} code={TAILWIND_CODE} w={colW} />
-        <CodeCol label="KUSSETSU — the native vocabulary" accent={[0.66, 0.66, 0.98, 1]} code={NATIVE_CODE} w={colW} />
+    <view style={{ width: "stretch", height: mobile ? undefined : 820, direction: "column", background: INK }}>
+      <Heading vw={vw} title="Native Vocabulary, or Migrate" sub="Author in the native tongue — <view> and <text> with a plain style object, no cascade. Or bring your existing HTML and Tailwind React, and a build-time compat layer maps it onto the GPU so you migrate one piece at a time. The same card, both ways, painting the identical result below." />
+      <view style={{ width: "stretch", direction: mobile ? "column" : "row", align: mobile ? "center" : "start", justify: "center", gap: mobile ? 16 : 30, padding: mobile ? 16 : 0 }}>
+        <CodeCol label="HTML + TAILWIND — the familiar way" accent={[0.5, 0.78, 0.62, 1]} code={TAILWIND_CODE} w={colW} mobile={mobile} />
+        <CodeCol label="KUSSETSU — the native vocabulary" accent={[0.66, 0.66, 0.98, 1]} code={NATIVE_CODE} w={colW} mobile={mobile} />
       </view>
-      <view style={{ grow: 1, width: "stretch", direction: "column", align: "center", justify: "center", gap: 12 }}>
-        <text style={{ fontSize: 13, fontWeight: 700, color: FAINT }}>↓ BOTH COMPILE TO THIS — PAINTED ON THE GPU, ACCESSIBLE</text>
+      <view style={{ grow: mobile ? 0 : 1, width: "stretch", direction: "column", align: "center", justify: "center", gap: 12, padding: vw < 360 ? 12 : mobile ? 28 : 0 }}>
+        <text style={{ maxWidth: Math.min(560, vw - 48), fontSize: 13, fontWeight: 700, color: FAINT }}>↓ BOTH COMPILE TO THIS — PAINTED ON THE GPU, ACCESSIBLE</text>
         <MigratedCard />
       </view>
     </view>
@@ -261,7 +293,7 @@ function MigrateSection({ vw }: { vw: number }) {
  *  page. Heavy sections are memoized so the per-frame drift tick only reconciles the animated glass. */
 export function DemoSections({ vw, t }: { vw: number; t: number }) {
   const fx = useMemo(() => <FxSection vw={vw} />, [vw]);
-  const springs = useMemo(() => <SpringSection />, []);
+  const springs = useMemo(() => <SpringSection vw={vw} />, [vw]);
   const particles = useMemo(() => <ParticleSection vw={vw} />, [vw]);
   const migrate = useMemo(() => <MigrateSection vw={vw} />, [vw]);
   return (

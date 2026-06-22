@@ -62,10 +62,14 @@ invisible accessibility/input overlay directly over the canvas.
 
 - `camera` (default `true`) — pan by dragging empty space, zoom on the wheel.
   Pass `camera: false` for a fixed page.
-- `pageScroll` (default `false`) — the wheel scrolls the whole page vertically.
+- `pageScroll` (default `false`) — the wheel **or a one-finger drag** scrolls the whole
+  page vertically (with inertia), so it works on touch as well as desktop.
 - `textSelectable` (default `false`) — all text is drag-selectable + copyable.
 - `background` — a full-screen WGSL background shader (`fn material(uv, px) -> vec4f`)
   rendered into the backdrop, so glass refracts it.
+
+Any node with `overflow: "scroll"` is a scroll region: it's wheel- **and** drag/touch-scrollable
+with inertia. The canvas sets `touch-action: none` so Kussetsu owns the gesture on touch devices.
 
 Also exported: `useSpring` (interruptible spring-physics animation), and the live
 `glassTuning` object (`glassTuning.params` + `glassTuning.enabled` to override every

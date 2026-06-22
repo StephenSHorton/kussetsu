@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { GlassSpec, RGBA } from "../core/scene";
 import { glassTuning } from "../core/glassTuning";
 import { DemoSections } from "./MainPage";
+import { isMobile, clampN, fluid } from "./responsive";
 
 // Kussetsu's marketing site, built IN Kussetsu — DARK: a black field lit by drifting colorful
 // gradient lights (a full-screen WGSL background the glass actually REFRACTS), white type, and
@@ -165,18 +166,22 @@ function NavLink({ label, onActivate }: { label: string; onActivate: () => void 
 }
 
 function Nav({ vw }: { vw: number }) {
-  const w = Math.min(MAXW, vw - EDGE * 2);
+  const mobile = isMobile(vw);
+  const edge = mobile ? 14 : EDGE;
+  const w = Math.min(MAXW, vw - edge * 2);
+  const navH = mobile ? 54 : NAV_H;
   return (
-    <view glass={NAV_GLASS} style={{ absolute: { x: Math.round((vw - w) / 2), y: EDGE }, width: w, height: NAV_H, radius: 18, cornerSmoothing: 0.7, direction: "row", align: "center", padding: 20, gap: 4 }}>
-      <view style={{ direction: "row", align: "center", gap: 9 }}>
-        <text style={{ fontSize: 21, fontWeight: 800, color: INK }}>Kussetsu</text>
-        <text style={{ fontSize: 18, fontWeight: 500, color: SLATE }}>屈折</text>
+    <view glass={NAV_GLASS} style={{ absolute: { x: Math.round((vw - w) / 2), y: edge }, width: w, height: navH, radius: mobile ? 15 : 18, cornerSmoothing: 0.7, direction: "row", align: "center", padding: mobile ? 12 : 20, gap: 4 }}>
+      <view style={{ direction: "row", align: "center", gap: mobile ? 7 : 9 }}>
+        <text style={{ fontSize: mobile ? 18 : 21, fontWeight: 800, color: INK }}>Kussetsu</text>
+        {vw >= 400 && <text style={{ fontSize: mobile ? 15 : 18, fontWeight: 500, color: SLATE }}>屈折</text>}
       </view>
       <view style={{ grow: 1 }} />
       <view style={{ direction: "row", align: "center", gap: 6 }}>
-        <NavLink label="GitHub" onActivate={goRepo} />
-        <view role="button" ariaLabel="Get started" onActivate={goRepo} style={{ height: 38, direction: "row", align: "center", justify: "center", padding: 18, radius: 11, cornerSmoothing: 0.6, background: ACCENT }}>
-          <text style={{ fontSize: 15, fontWeight: 700, color: WHITE }}>Get started</text>
+        {/* GitHub lives in the footer on mobile — keep the bar to brand + one CTA */}
+        {!mobile && <NavLink label="GitHub" onActivate={goRepo} />}
+        <view role="button" ariaLabel="Get started" onActivate={goRepo} style={{ height: mobile ? 34 : 38, direction: "row", align: "center", justify: "center", padding: mobile ? 14 : 18, radius: mobile ? 9 : 11, cornerSmoothing: 0.6, background: ACCENT }}>
+          <text style={{ fontSize: mobile ? 14 : 15, fontWeight: 700, color: WHITE }}>Get started</text>
         </view>
       </view>
     </view>
@@ -204,23 +209,32 @@ function SectionHeading({ vw, title, sub }: { vw: number; title: string; sub: st
 }
 
 function Hero({ vw, vh }: { vw: number; vh: number }) {
-  const h = Math.max(860, vh);
-  const cube = Math.min(600, vw * 0.6);
+  const mobile = isMobile(vw);
+  // The headline scales with the viewport so "GLASS" stays roughly edge-to-edge instead of
+  // overflowing on a phone — letterSpacing and the cube track it. 240px is the desktop ceiling.
+  const glassFont = fluid(vw, 0.27, 64, 240);
+  const glassLS = Math.round(glassFont * 0.092);
+  const cube = Math.round(clampN(200, vw * 0.62, 600));
   const cx = vw / 2;
-  const cubeY = 64;
+  const cubeY = mobile ? 56 : 64;
   const cubeMid = cubeY + cube / 2;
+  const subTop = cubeY + cube + (mobile ? 24 : 28);
+  const subFont = mobile ? 16 : 19;
+  const subW = Math.min(640, vw - (mobile ? 40 : 80));
+  // Keep the hero at least tall enough to hold the wrapped subhead + CTA (no clip into the next section).
+  const h = Math.max(subTop + (mobile ? 200 : 130) + 24 + 60, vh);
   return (
     <view style={{ width: "stretch", height: h }}>
       {/* one big word, wider than the cube so its ends read while the cube refracts the centre */}
-      <view style={{ absolute: { x: 0, y: Math.round(cubeMid - 142) }, width: vw, direction: "row", justify: "center" }}>
-        <text role="heading" level={1} style={{ fontSize: 240, fontWeight: 800, letterSpacing: 22, color: INK }}>GLASS</text>
+      <view style={{ absolute: { x: 0, y: Math.round(cubeMid - glassFont * 0.59) }, width: vw, direction: "row", justify: "center" }}>
+        <text role="heading" level={1} style={{ fontSize: glassFont, fontWeight: 800, letterSpacing: glassLS, color: INK }}>GLASS</text>
       </view>
       {/* a rotating rounded glass cube ray-traced in a shader — overlaps & refracts the headline */}
       <view material={{ shader: GLASS_CUBE, backdrop: true, animated: true, uniforms: cubeUniforms }} style={{ absolute: { x: Math.round(cx - cube / 2), y: cubeY }, width: cube, height: cube }} />
       {/* subhead + CTAs */}
-      <view style={{ absolute: { x: 0, y: Math.round(cubeY + cube + 28) }, width: vw, direction: "row", justify: "center" }}>
-        <view style={{ width: Math.min(640, vw - 80), direction: "column", align: "center", gap: 24 }}>
-          <text style={{ fontSize: 19, fontWeight: 500, color: SLATE }}>Kussetsu renders your React with WebGPU — refraction, shaders, real spring physics — while the DOM stays a clean, invisible layer for accessibility. Glass bending live light, the way CSS never could.</text>
+      <view style={{ absolute: { x: 0, y: Math.round(subTop) }, width: vw, direction: "row", justify: "center" }}>
+        <view style={{ width: subW, direction: "column", align: "center", gap: 24 }}>
+          <text style={{ fontSize: subFont, fontWeight: 500, color: SLATE }}>Kussetsu renders your React with WebGPU — refraction, shaders, real spring physics — while the DOM stays a clean, invisible layer for accessibility. Glass bending live light, the way CSS never could.</text>
           <view style={{ direction: "row", gap: 14, align: "center" }}>
             <PillButton label="Get started" fill={ACCENT} onActivate={goRepo} />
           </view>
@@ -232,19 +246,22 @@ function Hero({ vw, vh }: { vw: number; vh: number }) {
 
 // ── One empty glass pane gliding across in a loop — pure refraction tracking the moving light ──
 function PaneSection({ vw, t }: { vw: number; t: number }) {
-  const h = 560;
-  const paneW = 440, paneH = 132;
-  const headY = 230; // heading top
-  const paneY = headY - 34; // pane centered on the heading line → it glides OVER the words
+  const mobile = isMobile(vw);
+  const h = mobile ? 400 : 560;
+  const paneW = mobile ? Math.round(Math.min(440, vw * 0.86)) : 440;
+  const paneH = mobile ? 110 : 132;
+  const headY = mobile ? 120 : 230; // heading top
+  const subY = mobile ? 234 : 360;
+  const paneY = headY - (mobile ? 24 : 34); // pane centered on the heading line → it glides OVER the words
   const span = vw + paneW + 140;
   const x = (((t * 90) % span) + span) % span - paneW - 70; // smooth left→right loop
   return (
     <view style={{ width: "stretch", height: h, direction: "column", align: "center", overflow: "hidden" }}>
-      <view style={{ absolute: { x: 0, y: headY }, width: vw, direction: "row", justify: "center" }}>
-        <text role="heading" level={2} style={{ fontSize: 50, fontWeight: 800, color: INK }}>Real UI, rendered in glass</text>
+      <view style={{ absolute: { x: 0, y: headY }, width: vw, direction: "row", justify: "center", padding: mobile ? 16 : 0 }}>
+        <text role="heading" level={2} style={{ fontSize: fluid(vw, 0.072, 26, 50), fontWeight: 800, color: INK }}>Real UI, rendered in glass</text>
       </view>
-      <view style={{ absolute: { x: 0, y: 360 }, width: vw, direction: "row", justify: "center" }}>
-        <text style={{ maxWidth: 600, fontSize: 18, fontWeight: 500, color: SLATE }}>An empty pane glides across the words — watch the type refract and its chromatic edge shift as it passes. Nothing inside it; it's all the lens.</text>
+      <view style={{ absolute: { x: 0, y: subY }, width: vw, direction: "row", justify: "center", padding: mobile ? 16 : 0 }}>
+        <text style={{ maxWidth: Math.min(600, vw - 48), fontSize: mobile ? 15 : 18, fontWeight: 500, color: SLATE }}>An empty pane glides across the words — watch the type refract and its chromatic edge shift as it passes. Nothing inside it; it's all the lens.</text>
       </view>
       <view glass={PANE_GLASS} style={{ absolute: { x, y: paneY }, width: paneW, height: paneH, radius: 22, cornerSmoothing: 0.7 }} />
     </view>
@@ -259,6 +276,22 @@ const FEATURES: Feature[] = [
 ];
 
 function Features({ vw }: { vw: number }) {
+  // Mobile: the 3-up grid (≈950px wide, absolutely centered → off-screen on a phone) becomes a
+  // single stacked column that hugs its content.
+  if (isMobile(vw)) {
+    const cardW = Math.min(380, vw - 32);
+    return (
+      <view style={{ width: "stretch", direction: "column", align: "center", gap: 16, padding: 24 }}>
+        {FEATURES.map((f) => (
+          <view key={f.title} glass={CARD_GLASS} style={{ width: cardW, radius: 22, cornerSmoothing: 0.6, direction: "column", padding: 26, gap: 12 }}>
+            <view style={{ width: 44, height: 44, radius: 13, cornerSmoothing: 0.6, background: f.color }} />
+            <text role="heading" level={3} style={{ fontSize: 21, fontWeight: 800, color: INK }}>{f.title}</text>
+            <text style={{ fontSize: 15, fontWeight: 500, color: SLATE }}>{f.body}</text>
+          </view>
+        ))}
+      </view>
+    );
+  }
   const cardW = 300, gap = 24;
   const gridW = FEATURES.length * cardW + (FEATURES.length - 1) * gap;
   const x0 = Math.round((vw - gridW) / 2);
@@ -307,13 +340,20 @@ const GET_STARTED_CODE: CodeSeg[][] = [
   [{ text: "root.", }, { text: "render", kind: "fn" }, { text: "(" }, { text: "<App />", kind: "tag" }, { text: ");" }],
 ];
 
+// Widest line in GET_STARTED_CODE (chars) — drives the mobile font so no line overflows the card.
+const CODE_LONGEST = Math.max(...GET_STARTED_CODE.map((l) => l.reduce((n, s) => n + s.text.length, 0)));
+
 function GetStarted({ vw }: { vw: number }) {
-  const cardW = Math.min(560, vw - EDGE * 2);
+  const mobile = isMobile(vw);
+  const codePad = mobile ? 16 : 26;
+  const cardW = Math.min(560, vw - (mobile ? 24 : EDGE * 2));
+  // On a phone the code is too wide to fit at 14px — shrink it just enough that the longest line fits.
+  const codeFont = mobile ? clampN(9.5, (cardW - codePad * 2) / (CODE_LONGEST * 0.55), 14) : 14;
   return (
-    <view style={{ width: "stretch", height: 760, direction: "column", align: "center", justify: "center", gap: 28 }}>
-      <view style={{ width: Math.min(660, vw - EDGE * 2), direction: "column", align: "center", gap: 14 }}>
-        <text role="heading" level={2} style={{ fontSize: 44, fontWeight: 800, color: INK }}>Drop it in. Own every pixel.</text>
-        <text style={{ maxWidth: 600, fontSize: 18, fontWeight: 500, color: SLATE }}>{`Your real React, painted on WebGPU — hand it a canvas and render the same <view>/<text> you'd write anywhere. Refraction CSS has no syntax for, with the DOM kept invisible for accessibility.`}</text>
+    <view style={{ width: "stretch", height: mobile ? undefined : 760, direction: "column", align: "center", justify: "center", gap: mobile ? 22 : 28, padding: mobile ? 36 : 0 }}>
+      <view style={{ width: Math.min(660, vw - (mobile ? 32 : EDGE * 2)), direction: "column", align: "center", gap: 14 }}>
+        <text role="heading" level={2} style={{ fontSize: fluid(vw, 0.085, 28, 44), fontWeight: 800, color: INK }}>Drop it in. Own every pixel.</text>
+        <text style={{ maxWidth: Math.min(600, vw - 48), fontSize: mobile ? 16 : 18, fontWeight: 500, color: SLATE }}>{`Your real React, painted on WebGPU — hand it a canvas and render the same <view>/<text> you'd write anywhere. Refraction CSS has no syntax for, with the DOM kept invisible for accessibility.`}</text>
       </view>
       {/* install pill */}
       <view glass={CARD_GLASS} style={{ direction: "row", align: "center", gap: 11, padding: 16, radius: 12, cornerSmoothing: 0.6 }}>
@@ -321,14 +361,14 @@ function GetStarted({ vw }: { vw: number }) {
         <text style={{ fontSize: 15, fontWeight: 700, color: INK }}>npm i kussetsu</text>
       </view>
       {/* dark glass code card — readable, but the rim still refracts the lamp */}
-      <view glass={CODE_GLASS} style={{ width: cardW, direction: "column", gap: 2, padding: 26, radius: 20, cornerSmoothing: 0.7 }}>
+      <view glass={CODE_GLASS} style={{ width: cardW, direction: "column", gap: 2, padding: codePad, radius: 20, cornerSmoothing: 0.7 }}>
         {GET_STARTED_CODE.map((line, i) => (
           <view key={i} style={{ direction: "row" }}>
             {line.length === 0 ? (
-              <text style={{ fontSize: 14, color: CODE_BASE }}>{" "}</text>
+              <text style={{ fontSize: codeFont, color: CODE_BASE }}>{" "}</text>
             ) : (
               line.map((seg, j) => (
-                <text key={j} style={{ fontSize: 14, fontWeight: 500, color: seg.kind ? CODE_COLOR[seg.kind] : CODE_BASE }}>{seg.text}</text>
+                <text key={j} style={{ fontSize: codeFont, fontWeight: 500, color: seg.kind ? CODE_COLOR[seg.kind] : CODE_BASE }}>{seg.text}</text>
               ))
             )}
           </view>
@@ -343,10 +383,12 @@ function GetStarted({ vw }: { vw: number }) {
 }
 
 function Footer({ vw }: { vw: number }) {
+  const mobile = isMobile(vw);
+  const tw = Math.min(560, vw - 48);
   return (
-    <view style={{ width: "stretch", height: 200, direction: "column", align: "center", justify: "center", gap: 10 }}>
-      <text style={{ fontSize: 16, fontWeight: 700, color: SLATE }}>Real React · a custom reconciler · WebGPU · an invisible, accessible DOM</text>
-      <text style={{ fontSize: 13, color: FAINT }}>This page is built in Kussetsu — every pixel is WGSL output on one canvas.</text>
+    <view style={{ width: "stretch", height: mobile ? 220 : 200, direction: "column", align: "center", justify: "center", gap: 10, padding: 24 }}>
+      <text style={{ maxWidth: tw, fontSize: mobile ? 14 : 16, fontWeight: 700, color: SLATE }}>Real React · a custom reconciler · WebGPU · an invisible, accessible DOM</text>
+      <text style={{ maxWidth: tw, fontSize: mobile ? 12.5 : 13, color: FAINT }}>This page is built in Kussetsu — every pixel is WGSL output on one canvas.</text>
       <view style={{ direction: "row", gap: 8, align: "center" }}>
         <NavLink label="GitHub" onActivate={goRepo} />
       </view>

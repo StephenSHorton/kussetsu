@@ -12,6 +12,7 @@ import { MorphDemo } from "./MorphDemo";
 import { Showcase } from "./Showcase";
 import { MarketingPage, BG_LIGHTS } from "./MarketingPage";
 import { runStress } from "./stress";
+import { isMobile } from "./responsive";
 
 const canvas = document.getElementById("gpu") as HTMLCanvasElement;
 
@@ -62,5 +63,7 @@ if (params.has("stress")) {
   // NOTE: while the panel is live it overrides EVERY glass panel with one shared param set
   // (nav/cards/CTA/pane become identical) — that's the tuning mode, not the shipped per-element look.
   glassTuning.params = { refraction: 0.1, blur: 0, tint: 0.06, rim: 16, brighten: 1.03, specular: 0.12, dispersion: 0.06, tintColor: [0.86, 0.9, 1, 1] };
-  boot(MarketingPage, { camera: false, background: BG_LIGHTS }, true); // marketing site + live glass panel
+  // Skip the dev glass panel on phones: it's a 212px DOM overlay pinned bottom-right that would
+  // cover the footer and (being interactive DOM) swallow drag-scroll in that corner.
+  boot(MarketingPage, { camera: false, background: BG_LIGHTS }, !isMobile(window.innerWidth)); // marketing site + live glass panel (desktop only)
 }

@@ -167,6 +167,70 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   let panning = false;
   let panX = 0;
   let panY = 0;
+  // Drag-to-scroll. On touch there are NO wheel events, so a one-finger (or left-button)
+  // drag is the only way to scroll — it scrolls the region under it, or the page in
+  // pageScroll mode. Velocity is tracked for a light inertia fling on release.
+  let scrollDrag: { id: number; lastY: number; lastT: number; vy: number } | null = null;
+  let pageDrag: { lastY: number; lastT: number; vy: number } | null = null;
+  // A press that *might* become a pan/scroll drag. We don't capture the pointer (or start moving)
+  // until it travels past DRAG_THRESH — so a tap that lands on a button still fires its click
+  // instead of being eaten as a zero-distance drag.
+  let pendingDrag: { kind: "scroll" | "page" | "pan"; id: number; startX: number; startY: number; pointerId: number } | null = null;
+  const DRAG_THRESH = 8; // px
+  let inertiaRaf = 0;
+  const cancelInertia = () => {
+    if (inertiaRaf) cancelAnimationFrame(inertiaRaf);
+    inertiaRaf = 0;
+  };
+  // Topmost scroll region under a canvas-relative point that still has room to scroll.
+  const scrollRegionAt = (ox: number, oy: number): ScrollRegion | null => {
+    for (let i = scrollRegions.length - 1; i >= 0; i--) {
+      const r = scrollRegions[i];
+      if (r.maxScroll > 0 && ox >= r.rect[0] && ox <= r.rect[0] + r.rect[2] && oy >= r.rect[1] && oy <= r.rect[1] + r.rect[3]) return r;
+    }
+    return null;
+  };
+  // Inertia: decay the release velocity (`v` is px per 16 ms), stopping at rest or at an edge.
+  // We integrate by ELAPSED time (frames = dt/16), not once-per-rAF, so the fling feels identical
+  // at 60 / 90 / 120 Hz — otherwise high-refresh phones (the ones this targets) over-throw ~2×.
+  const flingScroll = (id: number, v0: number) => {
+    cancelInertia();
+    let v = v0;
+    if (Math.abs(v) < 0.4) return;
+    let lastT = performance.now();
+    const step = () => {
+      const now = performance.now();
+      const f = Math.min(50, now - lastT) / 16; // clamp dt so a tab-stall can't jump the page
+      lastT = now;
+      const r = scrollRegions.find((s) => s.id === id);
+      const max = r ? r.maxScroll : Infinity;
+      const cur = scrollY.get(id) ?? 0;
+      const next = Math.min(max, Math.max(0, cur + v * f));
+      scrollY.set(id, next);
+      container.dirty = true;
+      v *= Math.pow(0.93, f);
+      inertiaRaf = Math.abs(v) > 0.4 && next > 0 && next < max ? requestAnimationFrame(step) : 0;
+    };
+    inertiaRaf = requestAnimationFrame(step);
+  };
+  const flingPage = (v0: number) => {
+    cancelInertia();
+    let v = v0;
+    if (Math.abs(v) < 0.4) return;
+    let lastT = performance.now();
+    const step = () => {
+      const now = performance.now();
+      const f = Math.min(50, now - lastT) / 16;
+      lastT = now;
+      const maxScroll = Math.max(0, contentBottom - viewportH + 24);
+      const next = Math.min(0, Math.max(-maxScroll, camera.ty + v * f));
+      camera.ty = next;
+      container.dirty = true;
+      v *= Math.pow(0.93, f);
+      inertiaRaf = Math.abs(v) > 0.4 && next < 0 && next > -maxScroll ? requestAnimationFrame(step) : 0;
+    };
+    inertiaRaf = requestAnimationFrame(step);
+  };
   // Locate the text node + caret offset under a screen point. Exact hit if over a region;
   // otherwise the nearest region by vertical distance (so a drag through gaps still extends
   // the selection to the closest text). Returns null only if there are no selectable texts.
@@ -189,16 +253,25 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     return { id: best.id, offset: hitTest(best.node.wrapped!.result, lx, ly) };
   };
 
+  // Canvas-relative px from clientX/Y. The pointer listeners live on `host` (see registration
+  // below) so they ALSO catch presses on the invisible a11y proxies layered over the canvas;
+  // e.offsetX/Y would be proxy-relative there, so we always derive from the canvas rect — the
+  // same reason onWheel is on host and uses clientX/Y - rect.
+  const canvasXY = (e: PointerEvent): [number, number] => {
+    const rect = canvas.getBoundingClientRect();
+    return [e.clientX - rect.left, e.clientY - rect.top];
+  };
   const onPointerDown = (e: PointerEvent) => {
+    const [ox, oy] = canvasXY(e);
     // Clicking an editable field focuses the hidden <input> (keyboard + IME).
     for (let i = editables.length - 1; i >= 0; i--) {
       const r = editables[i];
-      if (e.offsetX >= r.x && e.offsetX <= r.x + r.w && e.offsetY >= r.y && e.offsetY <= r.y + r.h) {
+      if (ox >= r.x && ox <= r.x + r.w && oy >= r.y && oy <= r.y + r.h) {
         editingId = r.id;
         editInput.style.display = "block";
         positionInput(r);
         editInput.value = r.value;
-        const off = caretFromClick(r, e.offsetX);
+        const off = caretFromClick(r, ox);
         caretOffset = off;
         // Focus AFTER the default mousedown focus-change, or it steals focus back.
         setTimeout(() => {
@@ -212,9 +285,9 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     // Pressing on text starts a selection (takes precedence over pan). Only when the press
     // actually lands on a region — a press on empty space clears any selection and falls through.
     if (selectables.length) {
-      const overText = selectables.some((r) => e.offsetX >= r.x && e.offsetX <= r.x + r.w && e.offsetY >= r.y && e.offsetY <= r.y + r.h);
+      const overText = selectables.some((r) => ox >= r.x && ox <= r.x + r.w && oy >= r.y && oy <= r.y + r.h);
       if (overText) {
-        const hit = locate(e.offsetX, e.offsetY)!;
+        const hit = locate(ox, oy)!;
         selection = { anchorId: hit.id, anchorOffset: hit.offset, focusId: hit.id, focusOffset: hit.offset };
         selecting = true;
         canvas.setPointerCapture(e.pointerId);
@@ -223,22 +296,69 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       }
       if (selection) { selection = null; container.dirty = true; } // click off text clears the selection
     }
-    if (opts.camera) {
-      panning = true;
-      panX = e.clientX;
-      panY = e.clientY;
-      canvas.setPointerCapture(e.pointerId);
-    }
+    // Ignore presses on real DOM children that own their own pointer (e.g. the dev glass-tuning
+    // panel's sliders) — only the canvas and the a11y proxies over it drive pan/scroll.
+    if (e.target !== canvas && !a11yHost.contains(e.target as Node)) return;
+    // Otherwise this press MIGHT become a drag: scroll the region under it, scroll the page, or
+    // pan the camera. We DON'T capture or move yet — we wait until the pointer travels past
+    // DRAG_THRESH (in onPointerMove), so a tap that lands on a button still fires the proxy's
+    // click instead of being eaten as a zero-distance drag.
+    const sr = scrollRegionAt(ox, oy);
+    const kind = sr ? "scroll" : opts.pageScroll ? "page" : opts.camera ? "pan" : null;
+    if (kind) pendingDrag = { kind, id: sr ? sr.id : -1, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId };
   };
   const onPointerMove = (e: PointerEvent) => {
-    lastPointer = [e.offsetX, e.offsetY];
+    const [ox, oy] = canvasXY(e);
+    lastPointer = [ox, oy];
     if (materialsPresent) container.dirty = true; // pointer-reactive shaders repaint
     if (selecting && selection) {
-      const hit = locate(e.offsetX, e.offsetY);
+      const hit = locate(ox, oy);
       if (hit) {
         selection = { ...selection, focusId: hit.id, focusOffset: hit.offset };
         container.dirty = true;
       }
+      return;
+    }
+    // Promote a pending press to an active drag once it crosses the threshold. Capture the
+    // pointer to the canvas NOW: subsequent moves/up retarget there, so a drag that began on a
+    // button proxy keeps scrolling AND the proxy's click is suppressed (no tap fires).
+    if (pendingDrag && !scrollDrag && !pageDrag && !panning) {
+      if (Math.hypot(e.clientX - pendingDrag.startX, e.clientY - pendingDrag.startY) <= DRAG_THRESH) return;
+      cancelInertia();
+      try { canvas.setPointerCapture(pendingDrag.pointerId); } catch { /* synthetic / inactive pointer */ }
+      const now = performance.now();
+      // Anchor at the CURRENT point (not the press point): the threshold travel is absorbed as
+      // touch-slop, and starting lastT=now here avoids a dt≈0 first frame seeding a huge fling.
+      if (pendingDrag.kind === "scroll") scrollDrag = { id: pendingDrag.id, lastY: e.clientY, lastT: now, vy: 0 };
+      else if (pendingDrag.kind === "page") pageDrag = { lastY: e.clientY, lastT: now, vy: 0 };
+      else { panning = true; panX = e.clientX; panY = e.clientY; }
+      pendingDrag = null;
+      return; // subsequent moves drive the actual scroll/pan with real per-frame deltas
+    }
+    if (scrollDrag) {
+      const now = performance.now();
+      const dy = e.clientY - scrollDrag.lastY;
+      const r = scrollRegions.find((s) => s.id === scrollDrag!.id);
+      const max = r ? r.maxScroll : Infinity;
+      const cur = scrollY.get(scrollDrag.id) ?? 0;
+      scrollY.set(scrollDrag.id, Math.min(max, Math.max(0, cur - dy / camera.scale)));
+      const dt = Math.max(1, now - scrollDrag.lastT);
+      scrollDrag.vy = (-dy / camera.scale / dt) * 16; // px per 16ms, for the release fling
+      scrollDrag.lastY = e.clientY;
+      scrollDrag.lastT = now;
+      container.dirty = true;
+      return;
+    }
+    if (pageDrag) {
+      const now = performance.now();
+      const dy = e.clientY - pageDrag.lastY;
+      const maxScroll = Math.max(0, contentBottom - viewportH + 24);
+      camera.ty = Math.min(0, Math.max(-maxScroll, camera.ty + dy));
+      const dt = Math.max(1, now - pageDrag.lastT);
+      pageDrag.vy = (dy / dt) * 16;
+      pageDrag.lastY = e.clientY;
+      pageDrag.lastT = now;
+      container.dirty = true;
       return;
     }
     if (!panning) return;
@@ -251,6 +371,11 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   const endPan = (e: PointerEvent) => {
     panning = false;
     selecting = false;
+    pendingDrag = null; // a press that never crossed the threshold was a tap — let the click fire
+    // A finger that paused before lifting (drag-to-position) shouldn't fling: drop a stale velocity.
+    const STALE_MS = 60;
+    if (scrollDrag) { flingScroll(scrollDrag.id, performance.now() - scrollDrag.lastT > STALE_MS ? 0 : scrollDrag.vy); scrollDrag = null; }
+    if (pageDrag) { flingPage(performance.now() - pageDrag.lastT > STALE_MS ? 0 : pageDrag.vy); pageDrag = null; }
     try {
       canvas.releasePointerCapture(e.pointerId);
     } catch {
@@ -292,10 +417,12 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     camera.scale = ns;
     container.dirty = true;
   };
-  canvas.addEventListener("pointerdown", onPointerDown);
-  canvas.addEventListener("pointermove", onPointerMove);
-  canvas.addEventListener("pointerup", endPan);
-  canvas.addEventListener("pointercancel", endPan);
+  // All on `host` (not `canvas`) so they also catch presses on the a11y proxies layered over the
+  // canvas — otherwise a drag that begins on a button/nav/CTA never reaches us and won't scroll.
+  host.addEventListener("pointerdown", onPointerDown);
+  host.addEventListener("pointermove", onPointerMove);
+  host.addEventListener("pointerup", endPan);
+  host.addEventListener("pointercancel", endPan);
   host.addEventListener("wheel", onWheel, { passive: false }); // on host so it also catches wheel over a11y proxies
 
   // Cmd/Ctrl+C copies the painted text selection to the real clipboard (the selection is
@@ -435,12 +562,13 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     },
     destroy() {
       cancelAnimationFrame(rafId);
+      cancelInertia();
       clearTimeout(timerId);
       removeEventListener("resize", onResize);
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", endPan);
-      canvas.removeEventListener("pointercancel", endPan);
+      host.removeEventListener("pointerdown", onPointerDown);
+      host.removeEventListener("pointermove", onPointerMove);
+      host.removeEventListener("pointerup", endPan);
+      host.removeEventListener("pointercancel", endPan);
       host.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onCopy);
       reactRoot.unmount();
