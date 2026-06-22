@@ -200,37 +200,36 @@ const CODE_COLOR: Record<string, RGBA> = { tag: [0.55, 0.62, 0.95, 1], str: [0.4
 
 // The SAME card, two ways. Left: HTML + Tailwind (what you'd usually write). Right: kussetsu's
 // native vocabulary — <view>/<text> + a style object, no cascade. compat maps left -> right.
-// NOTE: at most one colour boundary per line (the leading tag) — splitting a line into many
-// coloured tokens drifts, because each text node's measured box is a hair wider than the atlas
-// glyphs, and the gap compounds across tokens.
+// Full per-token highlighting: adjacent coloured text nodes now lay out tight because layout
+// and the painter measure advances identically (charAdvance, text.ts).
 const TAILWIND_CODE: CodeLine[] = [
-  [{ text: "<div ", kind: "tag" }, { text: 'className="flex-col p-5', kind: "str" }],
-  [{ text: '      rounded-2xl bg-slate-800">', kind: "str" }],
-  [{ text: "  <div ", kind: "tag" }, { text: 'className="flex-row', kind: "str" }],
-  [{ text: '             items-center gap-3">', kind: "str" }],
-  [{ text: "    <div ", kind: "tag" }, { text: 'className="rounded-full', kind: "str" }],
-  [{ text: '               bg-indigo-500" />', kind: "str" }],
-  [{ text: "    <h3 ", kind: "tag" }, { text: 'className="text-lg', kind: "str" }],
-  [{ text: '            font-bold text-white">Ada</h3>', kind: "str" }],
+  [{ text: "<div ", kind: "tag" }, { text: "className=", kind: "attr" }, { text: '"flex-col p-5', kind: "str" }],
+  [{ text: '      rounded-2xl bg-slate-800"', kind: "str" }, { text: ">" }],
+  [{ text: "  <div ", kind: "tag" }, { text: "className=", kind: "attr" }, { text: '"flex-row', kind: "str" }],
+  [{ text: '             items-center gap-3"', kind: "str" }, { text: ">" }],
+  [{ text: "    <div ", kind: "tag" }, { text: "className=", kind: "attr" }, { text: '"rounded-full', kind: "str" }],
+  [{ text: '               bg-indigo-500"', kind: "str" }, { text: " />" }],
+  [{ text: "    <h3 ", kind: "tag" }, { text: "className=", kind: "attr" }, { text: '"text-lg', kind: "str" }],
+  [{ text: '            font-bold text-white"', kind: "str" }, { text: ">Ada</h3>" }],
   [{ text: "  </div>", kind: "tag" }],
-  [{ text: "  <button ", kind: "tag" }, { text: 'className="rounded-lg', kind: "str" }],
-  [{ text: '            bg-indigo-600">Follow', kind: "str" }],
+  [{ text: "  <button ", kind: "tag" }, { text: "className=", kind: "attr" }, { text: '"rounded-lg', kind: "str" }],
+  [{ text: '            bg-indigo-600"', kind: "str" }, { text: ">Follow" }],
   [{ text: "  </button>", kind: "tag" }],
   [{ text: "</div>", kind: "tag" }],
 ];
 
 const NATIVE_CODE: CodeLine[] = [
-  [{ text: "<view ", kind: "tag" }, { text: "style={{ direction: 'column'," }],
+  [{ text: "<view ", kind: "tag" }, { text: "style={{ direction: " }, { text: "'column'", kind: "str" }, { text: "," }],
   [{ text: "       padding: 20, radius: 16," }],
-  [{ text: "       background: SLATE, gap: 14 }}>" }],
-  [{ text: "  <view ", kind: "tag" }, { text: "style={{ direction: 'row'," }],
-  [{ text: "         align: 'center', gap: 12 }}>" }],
+  [{ text: "       background: " }, { text: "SLATE", kind: "const" }, { text: ", gap: 14 }}>" }],
+  [{ text: "  <view ", kind: "tag" }, { text: "style={{ direction: " }, { text: "'row'", kind: "str" }, { text: "," }],
+  [{ text: "         align: " }, { text: "'center'", kind: "str" }, { text: ", gap: 12 }}>" }],
   [{ text: "    <view ", kind: "tag" }, { text: "style={{ radius: 23," }],
-  [{ text: "           background: INDIGO }} />" }],
+  [{ text: "           background: " }, { text: "INDIGO", kind: "const" }, { text: " }} />" }],
   [{ text: "    <text ", kind: "tag" }, { text: "style={{ fontWeight: 700," }],
-  [{ text: "           color: WHITE }}>Ada</text>" }],
+  [{ text: "           color: " }, { text: "WHITE", kind: "const" }, { text: " }}>Ada</text>" }],
   [{ text: "  </view>", kind: "tag" }],
-  [{ text: "  <view ", kind: "tag" }, { text: "role='button'>Follow" }],
+  [{ text: "  <view ", kind: "tag" }, { text: "role", kind: "attr" }, { text: "='button'", kind: "str" }, { text: ">Follow" }],
   [{ text: "  </view>", kind: "tag" }],
   [{ text: "</view>", kind: "tag" }],
 ];

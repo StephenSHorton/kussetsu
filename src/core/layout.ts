@@ -2,24 +2,16 @@
 // row/column, padding, gap, fixed/stretch cross-size, align + justify. This is the
 // deliberately-swappable piece — Yoga or Taffy (Rust/WASM) drops in here for real.
 import { type ElementNode, type Style, textOf } from "./scene";
-
-let measureCtx: CanvasRenderingContext2D | null = null;
-
-function fontStr(s: Style): string {
-  return `${s.fontWeight ?? 400} ${s.fontSize ?? 16}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
-}
+import { measureWidth } from "./text";
 
 export function measureText(text: string, s: Style): { w: number; h: number } {
-  if (!measureCtx) measureCtx = document.createElement("canvas").getContext("2d");
-  const ctx = measureCtx!;
-  ctx.font = fontStr(s);
-  const m = ctx.measureText(text);
-  // Width hugs the actual glyphs (kerned). Height must match how the glyphs are actually
-  // RASTERISED — the atlas cell is ~1.32× font-size tall (GLYPH_BASE*1.3 in webgpu.ts) with
-  // the baseline ~0.98× down. The per-string actualBoundingBox underestimates this badly for
-  // strings without descenders (a 64px "Kussetsu" measured ~48px but its baseline renders at
-  // ~62px), so the glyphs overflowed the box and the next element rode up onto them.
-  return { w: Math.ceil(m.width) + 2, h: Math.ceil((s.fontSize ?? 16) * 1.32) };
+  // Width = sum of per-glyph display-size advances (same source the painter places glyphs by,
+  // so box and glyphs agree exactly — see charAdvance in text.ts). Height matches how the
+  // glyphs are RASTERISED — the atlas cell is ~1.32× font-size tall (GLYPH_BASE*1.3 in
+  // webgpu.ts) with the baseline ~0.98× down; the per-string actualBoundingBox underestimated
+  // this badly for strings without descenders (a 64px "Kussetsu" measured ~48px but its
+  // baseline renders at ~62px), so glyphs overflowed the box and the next element rode up.
+  return { w: Math.ceil(measureWidth(text, s)) + 2, h: Math.ceil((s.fontSize ?? 16) * 1.32) };
 }
 
 function elementChildren(node: ElementNode): ElementNode[] {

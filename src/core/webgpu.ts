@@ -4,6 +4,7 @@
 //      backdrop with refraction/blur/rim — i.e. glass refracts whatever is behind
 //      it, anywhere on screen, because we own the whole framebuffer.
 import type { RGBA } from "./scene";
+import { charAdvance } from "./text";
 
 export type ClipRect = [number, number, number, number]; // x,y,w,h screen px; w<=0 => no clip
 
@@ -809,12 +810,14 @@ export class Painter {
     for (const t of texts) {
       const scale = t.size / GLYPH_BASE;
       const cl = t.clip;
-      let penX = 0;
+      let penX = 0; // display px — advance by the SAME measurement layout uses (charAdvance)
       for (const ch of t.text) {
         const e = this.getGlyph(ch, t.weight);
         if (e.u1 > e.u0) {
           const o = n * FLOATS_PER_GLYPH;
-          data[o] = t.x + (penX - GLYPH_PAD) * scale;
+          // The sprite cell sits GLYPH_PAD (atlas px) left of the pen; the pen itself is the
+          // display-size advance sum, matching the text node's measured box.
+          data[o] = t.x + penX - GLYPH_PAD * scale;
           data[o + 1] = t.y;
           data[o + 2] = e.cellW * scale;
           data[o + 3] = e.cellH * scale;
@@ -823,7 +826,7 @@ export class Painter {
           data[o + 12] = cl ? cl[0] : 0; data[o + 13] = cl ? cl[1] : 0; data[o + 14] = cl ? cl[2] : 0; data[o + 15] = cl ? cl[3] : 0;
           n++;
         }
-        penX += e.advance;
+        penX += charAdvance(ch, t.weight, t.size);
       }
     }
     if (n === 0) return;

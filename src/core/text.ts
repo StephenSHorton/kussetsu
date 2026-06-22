@@ -33,10 +33,28 @@ function fontStr(s: Style): string {
 }
 
 let ctx: CanvasRenderingContext2D | null = null;
+const advanceCache = new Map<string, number>();
+// Advance width of ONE glyph at the exact (weight, size) it's displayed, cached. Layout sums
+// these for box widths AND the painter sums them to place glyphs — so the two agree to the
+// pixel. (Measuring at the 44px atlas base and scaling down drifts at small sizes, which is
+// what opened gaps between adjacent coloured text nodes.)
+export function charAdvance(ch: string, weight: number, size: number): number {
+  const key = `${weight}|${size}|${ch}`;
+  let a = advanceCache.get(key);
+  if (a === undefined) {
+    if (!ctx) ctx = document.createElement("canvas").getContext("2d");
+    ctx!.font = `${weight} ${size}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    a = ctx!.measureText(ch).width;
+    advanceCache.set(key, a);
+  }
+  return a;
+}
 export function measureWidth(text: string, s: Style): number {
-  if (!ctx) ctx = document.createElement("canvas").getContext("2d");
-  ctx!.font = fontStr(s);
-  return ctx!.measureText(text).width;
+  const weight = s.fontWeight ?? 400;
+  const size = s.fontSize ?? 16;
+  let w = 0;
+  for (const ch of text) w += charAdvance(ch, weight, size);
+  return w;
 }
 const measure = measureWidth;
 
