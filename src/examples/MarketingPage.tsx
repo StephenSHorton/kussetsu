@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { GlassSpec, RGBA } from "../core/scene";
+import { glassTuning } from "../core/glassTuning";
 
 // Kussetsu's marketing site, built IN Kussetsu — DARK: a black field lit by drifting colorful
 // gradient lights (a full-screen WGSL background the glass actually REFRACTS), white type, and
@@ -74,6 +75,9 @@ fn rotM(a: f32, c: f32) -> mat3x3<f32> {
   let ca = cos(a); let sa = sin(a); let cb = cos(c); let sb = sin(c);
   return mat3x3<f32>(ca, 0.0, -sa, 0.0, 1.0, 0.0, sa, 0.0, ca) * mat3x3<f32>(1.0, 0.0, 0.0, 0.0, cb, sb, 0.0, -sb, cb);
 }
+fn sampleRGB(b: vec2f, d: vec2f) -> vec3f { // dispersion: R/G/B split across the refraction offset
+  return vec3f(sampleBackdrop(b + d).r, sampleBackdrop(b).g, sampleBackdrop(b - d).b);
+}
 fn material(uv: vec2f, px: vec2f) -> vec4f {
   let t = u.res.w * 0.35;
   let q = (uv - 0.5) * 2.15;
@@ -109,18 +113,40 @@ fn material(uv: vec2f, px: vec2f) -> vec4f {
   var dir = refract(rd2, -n2, 1.5);
   if (dot(dir, dir) < 0.01) { dir = reflect(rd2, -n2); } // total internal reflection
   let dv = R * dir;
-  let strength = u.rect.z * 0.3;
+  // Glass params: baked defaults, or driven LIVE by the tuning panel when it's enabled (u.c0.x).
+  // c0=(enabled, refraction, dispersion, tint) c1=(specular, rim, brighten, blur) c2=tintColor.
+  let on = u.c0.x > 0.5;
+  let strength = u.rect.z * select(0.3, u.c0.y * 3.0, on);
+  let dispF = select(0.05, u.c0.z, on);
+  let tintA = select(0.05, u.c0.w, on);
+  let tintC = select(vec3f(0.72, 0.82, 1.0), u.c2.xyz, on);
+  let glintI = select(0.7, u.c1.x * 5.0, on);
+  let fresI = select(0.5, u.c1.y / 32.0, on);
+  let brite = select(1.04, u.c1.z, on);
+  let blurPx = select(0.0, u.c1.w, on);
   let base = px + dv.xy * strength;
-  let disp = dv.xy * strength * 0.05;
-  var col = vec3f(sampleBackdrop(base + disp).r, sampleBackdrop(base).g, sampleBackdrop(base - disp).b);
-  col = mix(col, vec3f(0.72, 0.82, 1.0), 0.05) * 1.04;
+  let dsp = dv.xy * strength * dispF;
+  var col = sampleRGB(base, dsp);
+  if (blurPx > 0.1) { // backdrop blur — average a few taps around the refracted sample
+    col += sampleRGB(base + vec2f(blurPx, 0.0), dsp) + sampleRGB(base - vec2f(blurPx, 0.0), dsp)
+         + sampleRGB(base + vec2f(0.0, blurPx), dsp) + sampleRGB(base - vec2f(0.0, blurPx), dsp);
+    col = col / 5.0;
+  }
+  col = mix(col, tintC, tintA) * brite;
   let nv = R * n1;
   let fres = pow(1.0 - max(0.0, nv.z), 4.0);
-  col += vec3f(0.6, 0.78, 1.0) * fres * 0.5; // glowing rounded edges
+  col += vec3f(0.6, 0.78, 1.0) * fres * fresI; // glowing rounded edges (rim)
   let L = normalize(vec3f(-0.4, 0.7, 0.6));
-  col += vec3f(1.0) * pow(max(0.0, dot(reflect(rd0, nv), L)), 28.0) * 0.7; // specular glint
+  col += vec3f(1.0) * pow(max(0.0, dot(reflect(rd0, nv), L)), 28.0) * glintI; // specular glint
   return vec4f(col, 1.0);
 }`;
+
+// Live uniforms for the cube — resolved every frame so the glass panel drives it too.
+// Packed: c0=(enabled, refraction, dispersion, tint) c1=(specular, rim, brighten, blur) c2=tintColor.
+function cubeUniforms(): number[] {
+  const p = glassTuning.params;
+  return [glassTuning.enabled ? 1 : 0, p.refraction, p.dispersion, p.tint, p.specular, p.rim, p.brighten, p.blur, p.tintColor[0], p.tintColor[1], p.tintColor[2], 0];
+}
 
 function goDemo() {
   window.location.search = "?demo";
@@ -189,7 +215,7 @@ function Hero({ vw, vh }: { vw: number; vh: number }) {
         </view>
       </view>
       {/* a rotating rounded glass cube ray-traced in a shader — overlaps & refracts the headline */}
-      <view material={{ shader: GLASS_CUBE, backdrop: true, animated: true }} style={{ absolute: { x: Math.round(cx - cube / 2), y: cubeY }, width: cube, height: cube }} />
+      <view material={{ shader: GLASS_CUBE, backdrop: true, animated: true, uniforms: cubeUniforms }} style={{ absolute: { x: Math.round(cx - cube / 2), y: cubeY }, width: cube, height: cube }} />
       {/* subhead + CTAs */}
       <view style={{ absolute: { x: 0, y: Math.round(cubeY + cube + 28) }, width: vw, direction: "row", justify: "center" }}>
         <view style={{ width: Math.min(640, vw - 80), direction: "column", align: "center", gap: 24 }}>

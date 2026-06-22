@@ -48,7 +48,7 @@ export interface GlassSpec {
 // to read the live scene behind it (ripple/heat-haze/loupe/spotlight). See core/webgpu.ts.
 export interface MaterialSpec {
   shader: string;
-  uniforms?: number[]; // up to 16 custom floats → u.c0..u.c3
+  uniforms?: number[] | (() => number[]); // up to 16 custom floats → u.c0..u.c3 (fn = resolved per frame, for live values)
   backdrop?: boolean; // shader can sample the scene behind it
   animated?: boolean; // request a continuous repaint loop
 }

@@ -149,7 +149,7 @@ export function collectMaterials(root: ElementNode, cam: Camera, scroll: ScrollM
         h: n.h * cam.scale,
         radius: (n.props.style?.radius ?? 0) * cam.scale,
         shader: m.shader,
-        uniforms: m.uniforms ?? [],
+        uniforms: typeof m.uniforms === "function" ? m.uniforms() : (m.uniforms ?? []), // fn → live per-frame values
         backdrop: !!m.backdrop,
         animated: !!m.animated,
       });
