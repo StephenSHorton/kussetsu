@@ -1,7 +1,11 @@
-// Live-tunable glass parameters, driven by the on-screen slider panel (main.tsx).
-// When `enabled`, these override EVERY glass panel's per-node spec so you can dial
-// the whole look at once — the equivalent of the Kussetsu controls, but for the
-// GPU shader. tintColor is 0..1 rgba.
+// Live-tunable glass parameters (the dev slider panel uses this). When `enabled`, these override
+// every glass panel's per-node spec so you can dial the whole look at once.
+//
+// NOTE: this is a PROCESS-WIDE mutable global — it overrides EVERY mounted root, mutates outside
+// React's data flow (toggling it from a component won't auto-repaint), and persists across tests.
+// Prefer the root-scoped `root.setGlassOverride(params)` (also `useGpuRoot().setGlassOverride`),
+// which is scoped to one root and repaints. The global stays as a quick dev/global convenience.
+// tintColor is 0..1 rgba.
 import type { RGBA } from "./scene";
 
 export interface GlassParams {

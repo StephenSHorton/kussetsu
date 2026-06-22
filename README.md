@@ -138,9 +138,13 @@ The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, 
 `resize()`, and `getCanvas()`.
 
 Also exported: `rgba("#5C5CFF", alpha?)` (turn a hex / `rgb()` / named color into a
-Style-ready `RGBA` tuple — colors are `[r, g, b, a]` 0..1, so this saves the by-hand
-math), and the live `glassTuning` object (`glassTuning.params` + `glassTuning.enabled` to
-override every glass panel at once, with `GLASS_DEFAULTS` as the reset baseline).
+Style-ready `RGBA` tuple — colors are `[r, g, b, a]` 0..1, so this saves the by-hand math).
+
+**Dialing every glass panel at once:** `root.setGlassOverride(params | null)` (also
+`useGpuRoot().setGlassOverride`) overrides every glass panel in **that root** with one shared
+param set (partial — merged over `GLASS_DEFAULTS`); `null` clears it. There's also a *process-wide*
+`glassTuning` global (`glassTuning.enabled` + `.params`) used by the dev slider panel — it overrides
+**every** mounted root and mutates outside React, so prefer the root-scoped `setGlassOverride`.
 
 ### Hooks
 

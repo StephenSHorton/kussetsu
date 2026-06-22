@@ -7,6 +7,12 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`root.setGlassOverride(params | null)`** (also `useGpuRoot().setGlassOverride`) — a
+  root-scoped glass override (partial, merged over `GLASS_DEFAULTS`; `null` clears). The
+  sound alternative to the process-wide `glassTuning` global, which is now documented as
+  overriding every mounted root and mutating outside React (the global still works as a
+  dev convenience / fallback).
+
 - **`useSpring` vector / RGBA overload.** `useSpring` now also animates a `number[]` / `RGBA`
   (each component its own spring, shared config), so you can spring a color or an (x, y) in one
   hook — `useSpring(rgba("#5C5CFF"))`. The scalar `number` form is unchanged.

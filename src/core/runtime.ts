@@ -32,6 +32,7 @@ import {
   type EditableRegion,
 } from "./collect";
 import { hitTest, measureWidth } from "./text";
+import { glassTuning, GLASS_DEFAULTS, type GlassParams } from "./glassTuning";
 import type { Camera, Container, ElementNode } from "./scene";
 
 export interface GpuRootOptions {
@@ -72,6 +73,10 @@ export interface GpuRoot {
   hitTest(x: number, y: number): number | null;
   /** The underlying `<canvas>` (e.g. to `toBlob()` it yourself after a `frame()`). */
   getCanvas(): HTMLCanvasElement;
+  /** Override every glass panel in THIS root with one shared param set (partial — merged over
+   *  `GLASS_DEFAULTS`), or `null` to clear and use each panel's own `glass` spec. Root-scoped —
+   *  prefer this over the process-wide `glassTuning` global. Repaints. */
+  setGlassOverride(params: Partial<GlassParams> | null): void;
   /** Tear down: stop the loop, remove the overlay/input, unmount React. */
   destroy(): void;
 }
@@ -93,6 +98,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   const host = canvas.parentElement ?? document.body;
   const container: Container = { kind: "container", canvas, children: [], dirty: true };
   let focusedId: number | null = null;
+  let glassOverride: GlassParams | null = null; // root-scoped glass override (setGlassOverride)
 
   // A material shader's compile failure is detected asynchronously; when the painter flags one,
   // repaint so the frame that already drew the (invalid) pipeline recovers.
@@ -569,7 +575,9 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       particles = { data, count: total };
     }
 
-    painter.frame(rects, collectTexts(root, camera, scrollY), collectGlass(root, camera, scrollY), fg, materials, {
+    // Glass override: this root's own (setGlassOverride) wins; the process-wide glassTuning is a fallback.
+    const glass = collectGlass(root, camera, scrollY, glassOverride ?? (glassTuning.enabled ? glassTuning.params : null));
+    painter.frame(rects, collectTexts(root, camera, scrollY), glass, fg, materials, {
       time: performance.now() / 1000,
       pointer: lastPointer,
       particles,
@@ -694,6 +702,10 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     },
     getCanvas() {
       return canvas;
+    },
+    setGlassOverride(params) {
+      glassOverride = params ? { ...GLASS_DEFAULTS, ...params, tintColor: [...(params.tintColor ?? GLASS_DEFAULTS.tintColor)] } : null;
+      container.dirty = true;
     },
     destroy() {
       stopped = true;

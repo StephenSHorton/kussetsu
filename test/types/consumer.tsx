@@ -91,6 +91,8 @@ async function boot() {
   void id;
   const c: HTMLCanvasElement = root.getCanvas();
   void c;
+  root.setGlassOverride({ refraction: 0.2, dispersion: 0.1 }); // partial override
+  root.setGlassOverride(null); // clear
 
   root.destroy();
 }
@@ -100,7 +102,8 @@ void App;
 // ── R3F-style hooks (used inside the Kussetsu tree) ──────────────────────────────
 function Animated() {
   const { width, height } = useViewport(); // { width, height } in css px
-  const root = useGpuRoot(); // imperative GpuRoot
+  const root = useGpuRoot(); // imperative controls (GpuControls)
+  root.setGlassOverride({ tint: 0.1 }); // root-scoped glass override is reachable from a component
   useFrame((dt: number) => {
     root.setCamera({ scale: 1 + Math.sin(dt) * 0 }); // dt is seconds since last frame
   });

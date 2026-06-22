@@ -6,7 +6,7 @@ import type { ParticleSpec } from "./particles";
 import type { ClipRect, GlassPanel, MaterialPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { measureWidth, selectionRects } from "./text";
-import { glassTuning } from "./glassTuning";
+import type { GlassParams } from "./glassTuning";
 
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];
 const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
@@ -163,10 +163,11 @@ export function collectMaterials(root: ElementNode, cam: Camera, scroll: ScrollM
   return out;
 }
 
-export function collectGlass(root: ElementNode, cam: Camera, scroll: ScrollMap): GlassPanel[] {
+export function collectGlass(root: ElementNode, cam: Camera, scroll: ScrollMap, override: GlassParams | null): GlassPanel[] {
   const out: GlassPanel[] = [];
-  // When the slider panel is live, its params override every panel's per-node spec.
-  const t = glassTuning.enabled ? glassTuning.params : null;
+  // When an override is active (root.setGlassOverride / the global glassTuning), its params
+  // replace every panel's per-node spec so you can dial the whole look at once.
+  const t = override;
   const walk = (n: ElementNode, sy: number) => {
     const g = n.props.glass;
     if (g) {
