@@ -14,9 +14,12 @@ export function measureText(text: string, s: Style): { w: number; h: number } {
   const ctx = measureCtx!;
   ctx.font = fontStr(s);
   const m = ctx.measureText(text);
-  const ascent = m.actualBoundingBoxAscent || (s.fontSize ?? 16) * 0.8;
-  const descent = m.actualBoundingBoxDescent || (s.fontSize ?? 16) * 0.2;
-  return { w: Math.ceil(m.width) + 2, h: Math.ceil(ascent + descent) + 2 };
+  // Width hugs the actual glyphs (kerned). Height must match how the glyphs are actually
+  // RASTERISED — the atlas cell is ~1.32× font-size tall (GLYPH_BASE*1.3 in webgpu.ts) with
+  // the baseline ~0.98× down. The per-string actualBoundingBox underestimates this badly for
+  // strings without descenders (a 64px "Kussetsu" measured ~48px but its baseline renders at
+  // ~62px), so the glyphs overflowed the box and the next element rode up onto them.
+  return { w: Math.ceil(m.width) + 2, h: Math.ceil((s.fontSize ?? 16) * 1.32) };
 }
 
 function elementChildren(node: ElementNode): ElementNode[] {
