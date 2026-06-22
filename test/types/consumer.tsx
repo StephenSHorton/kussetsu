@@ -1,0 +1,74 @@
+// Consumer type-check fixture — compiled with `npm run test:types`.
+//
+// Proves the public authoring surface type-checks the way a real app's tsconfig sees it
+// (jsx: react-jsx, moduleResolution: bundler, skipLibCheck: true), importing from the
+// BUILT package. The `@ts-expect-error` lines are negative guards: each MUST stay an
+// error, so if the typing ever goes loose (e.g. props collapse to `any`, or the
+// <view>/<text> SVG-intrinsic collision comes back), this file stops compiling.
+import { createGpuRoot, View, Text, rgba, useSpring } from "kussetsu";
+import type { Style, RGBA, ParticleSpec, ViewProps } from "kussetsu";
+
+// ── color helper ──────────────────────────────────────────────────────────────
+const indigo: RGBA = rgba("#5C5CFF");
+const faded: RGBA = rgba("#fff", 0.6);
+const named: RGBA = rgba("slate");
+void faded;
+void named;
+
+// ── authoring types ─────────────────────────────────────────────────────────────
+const bar: Style = { direction: "row", justify: "space-between", gap: 12 };
+const dots: ParticleSpec = { count: 200, gravity: 20 };
+const headingProps: ViewProps = { role: "heading", level: 1, style: { fontWeight: 800 } };
+void bar;
+void headingProps;
+
+// ── the documented authoring shape — must type-check clean ───────────────────────
+function App() {
+  const lift = useSpring(12); // returns number
+  return (
+    <View
+      glass={{ refraction: 0.1, dispersion: 0.07 }}
+      style={{ padding: 28, radius: 22, background: rgba("#0b0e14"), gap: 10 }}
+    >
+      <Text style={{ fontWeight: 800, color: indigo }}>Hello, light.</Text>
+      <View
+        draggable
+        ariaLabel="card"
+        onActivate={() => {}}
+        onDrag={(dx, dy) => void (dx + dy)}
+        particles={dots}
+        style={{ absolute: { x: 0, y: lift }, width: 150, height: 92, justify: "space-between" }}
+      />
+      <View editable value="hi" onChange={(v) => void v} material={{ shader: "fn material() {}" }}>
+        <Text>{"editable"}</Text>
+      </View>
+    </View>
+  );
+}
+
+async function boot() {
+  const canvas = document.querySelector<HTMLCanvasElement>("#app")!;
+  const root = await createGpuRoot(canvas, { camera: false, textSelectable: true });
+  root.render(<App />);
+  root.destroy();
+}
+void boot;
+void App;
+
+// ── negative guards (each line MUST remain a type error) ─────────────────────────
+
+// @ts-expect-error background is an RGBA tuple, not a CSS string — use rgba("#fff").
+const badBg = <View style={{ background: "#ffffff" }} />;
+// @ts-expect-error "middle" is not a valid justify value.
+const badJustify = <View style={{ justify: "middle" }} />;
+// @ts-expect-error color is an RGBA tuple, not a string.
+const badColor = <Text style={{ color: "red" }}>x</Text>;
+// @ts-expect-error unknown prop is rejected (props are typed, not `any`).
+const badProp = <View notARealProp />;
+// @ts-expect-error rgba() takes a string, not a number.
+const badRgba = rgba(0xff0000);
+void badBg;
+void badJustify;
+void badColor;
+void badProp;
+void badRgba;

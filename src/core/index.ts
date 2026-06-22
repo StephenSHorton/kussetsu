@@ -1,19 +1,21 @@
 // Kussetsu — public API.
 //
-// Author UI in plain React with the `<view>` / `<text>` host elements, then mount
-// it on a GPU root: every pixel is painted on the GPU (WebGPU), and the DOM exists
-// only as an invisible accessibility + input layer over the canvas.
+// Author UI in plain React with the `<View>` / `<Text>` components, then mount it on a
+// GPU root: every pixel is painted on the GPU (WebGPU), and the DOM exists only as an
+// invisible accessibility + input layer over the canvas.
 //
-//   import { createGpuRoot } from "kussetsu";
+//   import { createGpuRoot, View, Text } from "kussetsu";
 //   const root = await createGpuRoot(canvas, { camera: false });
-//   root.render(<App />);
-//
-// Importing this module also brings in the global JSX typings for `<view>`/`<text>`.
+//   root.render(<View><Text>Hello, light.</Text></View>);
 
 export { createGpuRoot, type GpuRoot, type GpuRootOptions } from "./runtime";
 
-// Authoring types (the <view>/<text> props + style). The global JSX declaration
-// for the host elements lives in ./scene and is pulled in by these re-exports.
+// The typed authoring API. `<View>` (a box) and `<Text>` (a string) are the GPU host
+// elements wrapped so they type-check cleanly (the lowercase `<view>`/`<text>` intrinsics
+// collide with React's SVG typings — see ./components).
+export { View, Text, type ViewProps, type TextProps } from "./components";
+
+// Authoring types (the node props + style).
 export type { Style, NodeProps, GlassSpec, MaterialSpec, Role, RGBA, Camera } from "./scene";
 export type { ParticleSpec } from "./particles";
 
