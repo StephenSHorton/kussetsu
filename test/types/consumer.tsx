@@ -38,7 +38,12 @@ void card;
 
 // ── the documented authoring shape — must type-check clean ───────────────────────
 function App() {
-  const lift = useSpring(12); // returns number
+  const lift: number = useSpring(12); // scalar → number
+  const xy: [number, number] = useSpring([0, 100] as [number, number]); // vector → tuple
+  const color: RGBA = useSpring(rgba("#5C5CFF"), { stiffness: 120 }); // RGBA → RGBA (each channel springs)
+  void xy;
+  void color;
+  void lift;
   return (
     <View
       glass={{ refraction: 0.1, dispersion: 0.07 }}

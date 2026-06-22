@@ -151,8 +151,9 @@ Inside a Kussetsu tree (rendered via `createGpuRoot` / `<GpuCanvas>`):
   animation. Prefer imperative updates inside it (e.g. `useGpuRoot().setCamera(...)`).
 - **`useViewport()`** → `{ width, height }` in CSS px; re-renders the component on resize.
 - **`useGpuRoot()`** → the imperative `GpuRoot` (`getCamera` / `setCamera` / `hitTest` / …).
-- **`useSpring(target, config?)`** — interruptible spring-physics animation of a number
-  (change the target mid-flight and it carries momentum — what CSS transitions can't do).
+- **`useSpring(target, config?)`** — interruptible spring-physics animation of a number, or a
+  vector / `RGBA` color (each component springs independently, shared config) — change the target
+  mid-flight and it carries momentum, which CSS transitions can't: `useSpring(rgba("#5C5CFF"))`.
 
 ```tsx
 import { useFrame, useGpuRoot, View } from "kussetsu";
