@@ -327,6 +327,25 @@ const MATERIAL_TAIL = /* wgsl */ `
 }
 `;
 
+// Dev only — gates the user-visible magenta error fill. Relies on an app bundler replacing
+// the literal `process.env.NODE_ENV` (Vite/Next/webpack/esbuild all do). Fails SAFE: an
+// unbundled / no-replacement load throws and we stay `false` (skip the fill) rather than
+// flash magenta at real users.
+let DEV = false;
+try {
+  // @ts-expect-error `process` is bundler-injected, not typed in this browser lib.
+  DEV = process.env.NODE_ENV !== "production";
+} catch {
+  /* no bundler replacement (raw ESM/CDN) — leave DEV false so prod users never see the fill */
+}
+
+// Drawn in place of a material whose shader failed to compile — magenta diagonal stripes,
+// a clear "broken shader here" marker (dev only; in production a bad material is skipped).
+const ERROR_MATERIAL = /* wgsl */ `fn material(uv: vec2f, px: vec2f) -> vec4f {
+  let stripe = step(0.5, fract((px.x + px.y) * 0.04));
+  return vec4f(mix(vec3f(0.55, 0.0, 0.35), vec3f(1.0, 0.15, 0.6), stripe), 0.8);
+}`;
+
 // Additive blend — particles ADD light, so overlaps brighten into glow (which bloom blooms).
 const ADD_BLEND: GPUBlendState = {
   color: { srcFactor: "one", dstFactor: "one", operation: "add" },
@@ -491,6 +510,10 @@ export class Painter {
   private materialBGL!: GPUBindGroupLayout;
   private materialPL!: GPUPipelineLayout;
   private warnedUniforms = new Set<string>(); // shaders we've already warned about (>16 uniform floats)
+  private badShaders = new Set<string>(); // shaders that failed to compile — skipped/error-filled, never drawn
+  /** Set by the runtime: called when a shader is newly flagged bad, so the (async) detection
+   *  can trigger a repaint and the frame recovers instead of staying blank. */
+  onInvalidate?: () => void;
 
   // A full-screen background shader rendered INTO the backdrop (pass 0) so glass refracts it.
   private bgShader: string | null = null;
@@ -888,6 +911,14 @@ export class Painter {
           "`fn material(uv: vec2f, px: vec2f) -> vec4f`:\n" +
           errs.map((m) => `  line ${Math.max(1, m.lineNum - head)}: ${m.message}`).join("\n"),
       );
+      // Flag it so drawMaterials never binds this (invalid) pipeline — one bad shader would
+      // otherwise invalidate the whole command buffer and blank the entire frame. The detection
+      // is async (one-shot per unique shader: getCompilationInfo runs only on the cache miss
+      // above), so the first frame already drew the invalid pipeline — nudge a repaint to recover
+      // it. (This catches shader-MODULE compile errors, which dominate the wrapped `fn material`
+      // surface; a pipeline-creation failure for a non-compile reason isn't covered yet.)
+      this.badShaders.add(shader);
+      this.onInvalidate?.();
     }).catch(() => {});
     p = this.device.createRenderPipeline({
       layout: this.materialPL,
@@ -907,18 +938,25 @@ export class Painter {
     }
     const pass = encoder.beginRenderPass({ colorAttachments: [{ view: target, loadOp: "load", storeOp: "store" }] });
     materials.forEach((m, i) => {
+      // A shader that failed to compile would invalidate the whole command buffer (blanking
+      // every sibling). Skip it in production; in dev, paint the magenta error fill instead so
+      // you can see WHICH material is broken (the console already says which line).
+      const bad = this.badShaders.has(m.shader);
+      if (bad && !DEV) return;
       const buf = this.materialBuffers[i];
       const a = new Float32Array(32);
       a[0] = m.x; a[1] = m.y; a[2] = m.w; a[3] = m.h;
       a[4] = cssW; a[5] = cssH; a[6] = dpr; a[7] = time;
       a[8] = pointer[0]; a[9] = pointer[1]; a[10] = m.radius; a[11] = 0;
-      if (m.uniforms.length > 16 && !this.warnedUniforms.has(m.shader)) {
-        this.warnedUniforms.add(m.shader);
-        console.warn(`[kussetsu] material 'uniforms' has ${m.uniforms.length} floats; only the first 16 (u.c0..u.c3) are uploaded — the rest are ignored.`);
+      if (!bad) {
+        if (m.uniforms.length > 16 && !this.warnedUniforms.has(m.shader)) {
+          this.warnedUniforms.add(m.shader);
+          console.warn(`[kussetsu] material 'uniforms' has ${m.uniforms.length} floats; only the first 16 (u.c0..u.c3) are uploaded — the rest are ignored.`);
+        }
+        for (let k = 0; k < 16; k++) a[12 + k] = m.uniforms[k] ?? 0;
       }
-      for (let k = 0; k < 16; k++) a[12 + k] = m.uniforms[k] ?? 0;
       this.device.queue.writeBuffer(buf, 0, a);
-      const pipeline = this.getMaterialPipeline(m.shader);
+      const pipeline = this.getMaterialPipeline(bad ? ERROR_MATERIAL : m.shader);
       const bg = this.device.createBindGroup({
         layout: this.materialBGL,
         entries: [{ binding: 0, resource: { buffer: buf } }, { binding: 1, resource: this.sampler }, { binding: 2, resource: this.backdropView! }],

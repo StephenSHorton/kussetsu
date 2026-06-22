@@ -89,6 +89,10 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   const container: Container = { kind: "container", canvas, children: [], dirty: true };
   let focusedId: number | null = null;
 
+  // A material shader's compile failure is detected asynchronously; when the painter flags one,
+  // repaint so the frame that already drew the (invalid) pipeline recovers.
+  painter.onInvalidate = () => { container.dirty = true; };
+
   // Dev-mode diagnostics for the two silent first-run footguns: a 0-sized canvas paints
   // nothing (we size the framebuffer from the canvas's CSS box), and a non-positioned
   // parent misaligns the invisible a11y/input overlay (placed position:absolute over the
