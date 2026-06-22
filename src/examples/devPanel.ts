@@ -14,8 +14,8 @@ export function buildGlassPanel(onRender: () => void): HTMLElement {
   const wrap = document.createElement("div");
   Object.assign(wrap.style, {
     position: "absolute",
-    top: "12px",
-    right: "12px",
+    bottom: "16px",
+    right: "16px",
     zIndex: "60",
     width: "212px",
     background: "rgba(10,12,20,0.86)",

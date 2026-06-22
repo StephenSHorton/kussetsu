@@ -8,6 +8,8 @@ import type { GlassSpec, RGBA } from "../core/scene";
 
 const REPO = "https://github.com/StephenSHorton/kussetsu";
 const NAV_H = 66;
+const MAXW = 1000; // content max-width — keeps the nav + sections contained, not edge-to-edge
+const EDGE = 24; // gutter from the viewport edges
 
 const INK: RGBA = [0.98, 0.98, 1, 1]; // headings (white)
 const SLATE: RGBA = [0.76, 0.79, 0.89, 1]; // body
@@ -136,8 +138,9 @@ function NavLink({ label, onActivate }: { label: string; onActivate: () => void 
 }
 
 function Nav({ vw }: { vw: number }) {
+  const w = Math.min(MAXW, vw - EDGE * 2);
   return (
-    <view glass={NAV_GLASS} style={{ absolute: { x: 0, y: 0 }, width: vw, height: NAV_H, direction: "row", align: "center", padding: 26, gap: 4 }}>
+    <view glass={NAV_GLASS} style={{ absolute: { x: Math.round((vw - w) / 2), y: EDGE }, width: w, height: NAV_H, radius: 18, cornerSmoothing: 0.7, direction: "row", align: "center", padding: 20, gap: 4 }}>
       <text style={{ fontSize: 21, fontWeight: 800, color: INK }}>Kussetsu</text>
       <view style={{ grow: 1 }} />
       <view style={{ direction: "row", align: "center", gap: 6 }}>
@@ -230,7 +233,7 @@ const FEATURES: Feature[] = [
 ];
 
 function Features({ vw }: { vw: number }) {
-  const cardW = 320, gap = 26;
+  const cardW = 300, gap = 24;
   const gridW = FEATURES.length * cardW + (FEATURES.length - 1) * gap;
   const x0 = Math.round((vw - gridW) / 2);
   return (
