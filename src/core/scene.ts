@@ -26,6 +26,7 @@ export interface Style {
   color?: RGBA;
   fontSize?: number;
   fontWeight?: number;
+  letterSpacing?: number; // CSS px added between glyphs (tracking)
 }
 
 // A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop),

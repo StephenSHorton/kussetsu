@@ -213,7 +213,7 @@ function Hero({ vw, vh }: { vw: number; vh: number }) {
     <view style={{ width: "stretch", height: h }}>
       {/* one big word, wider than the cube so its ends read while the cube refracts the centre */}
       <view style={{ absolute: { x: 0, y: Math.round(cubeMid - 142) }, width: vw, direction: "row", justify: "center" }}>
-        <text role="heading" level={1} style={{ fontSize: 240, fontWeight: 800, color: INK }}>GLASS</text>
+        <text role="heading" level={1} style={{ fontSize: 240, fontWeight: 800, letterSpacing: 22, color: INK }}>GLASS</text>
       </view>
       {/* a rotating rounded glass cube ray-traced in a shader — overlaps & refracts the headline */}
       <view material={{ shader: GLASS_CUBE, backdrop: true, animated: true, uniforms: cubeUniforms }} style={{ absolute: { x: Math.round(cx - cube / 2), y: cubeY }, width: cube, height: cube }} />

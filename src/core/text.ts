@@ -52,8 +52,9 @@ export function charAdvance(ch: string, weight: number, size: number): number {
 export function measureWidth(text: string, s: Style): number {
   const weight = s.fontWeight ?? 400;
   const size = s.fontSize ?? 16;
+  const ls = s.letterSpacing ?? 0; // tracking, added after each glyph (matches the painter's pen)
   let w = 0;
-  for (const ch of text) w += charAdvance(ch, weight, size);
+  for (const ch of text) w += charAdvance(ch, weight, size) + ls;
   return w;
 }
 const measure = measureWidth;

@@ -27,6 +27,7 @@ export interface TextItem {
   weight: number;
   color: RGBA;
   clip?: ClipRect;
+  tracking?: number; // letter-spacing in display px (added after each glyph)
 }
 
 export interface GlassPanel {
@@ -840,7 +841,7 @@ export class Painter {
           data[o + 12] = cl ? cl[0] : 0; data[o + 13] = cl ? cl[1] : 0; data[o + 14] = cl ? cl[2] : 0; data[o + 15] = cl ? cl[3] : 0;
           n++;
         }
-        penX += charAdvance(ch, t.weight, t.size);
+        penX += charAdvance(ch, t.weight, t.size) + (t.tracking ?? 0);
       }
     }
     if (n === 0) return;

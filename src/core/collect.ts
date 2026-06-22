@@ -75,15 +75,16 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
       const size = (s.fontSize ?? 16) * cam.scale;
       const weight = s.fontWeight ?? 400;
       const color = s.color ?? ([1, 1, 1, 1] as RGBA);
+      const tracking = (s.letterSpacing ?? 0) * cam.scale;
       if (n.wrapped) {
         // wrapped paragraph: one TextItem per visual line
         for (const L of n.wrapped.result.lines) {
           if (!L.text) continue;
-          out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color, clip });
+          out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color, clip, tracking });
         }
       } else {
         const str = textOf(n);
-        if (str) out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy) * cam.scale + cam.ty, text: str, size, weight, color, clip });
+        if (str) out.push({ x: n.x * cam.scale + cam.tx, y: (n.y - sy) * cam.scale + cam.ty, text: str, size, weight, color, clip, tracking });
       }
     }
     if (n.props.glass || n.props.material) return; // their children render in the FOREGROUND pass
@@ -115,11 +116,12 @@ export function collectForeground(root: ElementNode, cam: Camera, scroll: Scroll
       const size = (s.fontSize ?? 16) * cam.scale;
       const weight = s.fontWeight ?? 400;
       const color = s.color ?? ([1, 1, 1, 1] as RGBA);
+      const tracking = (s.letterSpacing ?? 0) * cam.scale;
       if (n.wrapped) {
-        for (const L of n.wrapped.result.lines) if (L.text) texts.push({ x, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color });
+        for (const L of n.wrapped.result.lines) if (L.text) texts.push({ x, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color, tracking });
       } else {
         const str = textOf(n);
-        if (str) texts.push({ x, y, text: str, size, weight, color });
+        if (str) texts.push({ x, y, text: str, size, weight, color, tracking });
       }
     }
     for (const c of n.children) if (c.kind === "element") emit(c, sy);
