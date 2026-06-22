@@ -1,7 +1,7 @@
 // Dev-only: a DOM slider panel that drives the live glass tuning params. Not part
 // of the renderer core — it just mutates glassTuning (which collectGlass reads when
 // enabled) and calls onRender() to repaint. Examples mount it; apps don't ship it.
-import { glassTuning, GLASS_DEFAULTS } from "../core/glassTuning";
+import { glassTuning } from "../core/glassTuning";
 import type { RGBA } from "../core/scene";
 
 const rgbaToHex = (c: RGBA) => "#" + [0, 1, 2].map((i) => Math.round(c[i] * 255).toString(16).padStart(2, "0")).join("");
@@ -11,6 +11,9 @@ const hexToRgba = (h: string): RGBA => [parseInt(h.slice(1, 3), 16) / 255, parse
  *  `onRender` is called on every change (e.g. root.requestRender). */
 export function buildGlassPanel(onRender: () => void): HTMLElement {
   const tp = glassTuning.params;
+  // Snapshot the values the panel opens with (the page's seeded look) so Reset returns HERE,
+  // not to the library GLASS_DEFAULTS — otherwise Reset changes values you never touched.
+  const initial = { ...tp, tintColor: [...tp.tintColor] as RGBA };
   const wrap = document.createElement("div");
   Object.assign(wrap.style, {
     position: "absolute",
@@ -111,7 +114,7 @@ export function buildGlassPanel(onRender: () => void): HTMLElement {
   body.appendChild(crow);
 
   resetBtn.addEventListener("click", () => {
-    Object.assign(glassTuning.params, GLASS_DEFAULTS, { tintColor: [...GLASS_DEFAULTS.tintColor] });
+    Object.assign(glassTuning.params, initial, { tintColor: [...initial.tintColor] });
     for (const sync of controls) sync();
     onRender();
   });
