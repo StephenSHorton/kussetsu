@@ -53,35 +53,54 @@ export function GpuCanvas({
   const [root, setRoot] = useState<GpuRoot | null>(null);
   const [failed, setFailed] = useState(false);
 
-  // Create the GPU root for this canvas (and re-create it if a root-level option changes).
-  // The `cancelled` flag makes the async mount cleanup-safe: under StrictMode the first
-  // effect's createGpuRoot may resolve AFTER its cleanup ran — we destroy that orphan
-  // instead of leaking it, so exactly one root survives.
+  // Serializes root creation so two roots never own the canvas at once. A `<canvas>`'s
+  // WebGPU context is a single shared resource: under React 18 StrictMode (mount → unmount
+  // → mount) or an option change, two overlapping createGpuRoot calls would each configure
+  // it with their own GPUDevice, and the live root then paints nothing while the console
+  // floods with "TextureView … cannot be used with [Device]". The gate makes each mount
+  // wait for the previous root to FULLY tear down before it creates its own.
+  const gateRef = useRef<Promise<void>>(Promise.resolve());
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let cancelled = false;
     let created: GpuRoot | null = null;
-    setFailed(false);
-    createGpuRoot(canvas, { camera, pageScroll, textSelectable, background })
-      .then((r) => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const prev = gateRef.current;
+    gateRef.current = gate;
+
+    const done = (async () => {
+      await prev; // wait for any previous root on this canvas to finish tearing down
+      if (cancelled) return; // unmounted while waiting — never touch the canvas
+      setFailed(false);
+      try {
+        const r = await createGpuRoot(canvas, { camera, pageScroll, textSelectable, background });
         if (cancelled) {
-          r.destroy(); // unmounted (or StrictMode-remounted) before we resolved
+          r.destroy(); // unmounted while creating
           return;
         }
         created = r;
         setRoot(r);
         onCreated?.(r);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setFailed(true);
-        console.error("[kussetsu] createGpuRoot failed (no WebGPU?):", err);
-      });
+      } catch (err) {
+        if (!cancelled) {
+          setFailed(true);
+          console.error("[kussetsu] createGpuRoot failed (no WebGPU?):", err);
+        }
+      }
+    })();
+
     return () => {
       cancelled = true;
-      created?.destroy();
       setRoot(null);
+      // Destroy and open the gate only AFTER creation settles, so the next mount can't
+      // start configuring the canvas while this root is still alive.
+      done.then(() => {
+        created?.destroy();
+        release();
+      });
     };
     // onCreated is intentionally not a dep — recreating the root on a new callback identity
     // would be surprising; we call the latest-at-creation-time handler.
