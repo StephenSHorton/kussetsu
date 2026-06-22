@@ -258,11 +258,11 @@ export function mapCssDeclarations(decls: Array<[string, string | number | null]
   // ── things with a real, named renderer gap → always loud ────────────────────
   const NO_TARGET: Record<string, string> = {
     "box-shadow": "box-shadow has no GPU target yet (needs a shadow pass)",
-    border: "border has no GPU target yet (the painter has no stroke primitive)",
-    "border-width": "borders have no GPU target yet (no stroke primitive)",
-    "border-color": "borders have no GPU target yet (no stroke primitive)",
-    "border-style": "borders have no GPU target yet (no stroke primitive)",
-    outline: "outline has no GPU target yet (no stroke primitive)",
+    border: "compat doesn't auto-map CSS `border` yet — set the native `border` (px) + `borderColor` Style field directly",
+    "border-width": "compat doesn't auto-map `border-width` yet — use the native `border` (px) Style field",
+    "border-color": "compat doesn't auto-map `border-color` yet — use the native `borderColor` Style field",
+    "border-style": "border-style (dashed/dotted) isn't supported — only a solid stroke via the native `border` field",
+    outline: "outline isn't mapped — use the native `border` / `borderColor` Style field",
     "box-sizing": "", // ignore: Yoga is already border-box-like
     transform: "transform has no GPU target yet (camera is whole-scene translate+scale only)",
     filter: "filter has no GPU target yet",

@@ -39,6 +39,10 @@ export interface Style {
   background?: RGBA;
   radius?: number;
   cornerSmoothing?: number; // 0 = round corners (default), 1 = squircle (superellipse)
+  border?: number; // border/stroke width in CSS px — a hairline outline on the box edge (scales with zoom).
+  // Ignored on glass/material nodes (use the glass rim). A sub-pixel width still paints a crisp ~1px line.
+  borderColor?: RGBA; // border color (default: a faint light hairline). Works without a background; note a
+  // translucent border (alpha < 1) reveals the page behind the box, not its own fill.
   // text-only
   color?: RGBA;
   fontSize?: number;
