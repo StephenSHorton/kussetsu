@@ -5,6 +5,9 @@ import type { ReactNode } from "react";
 
 export type RGBA = [number, number, number, number]; // 0..1 each, STRAIGHT alpha
 
+/** A length: fixed pixels (`200`) or a percentage of the parent (`"50%"`). */
+export type Size = number | `${number}%`;
+
 export interface Style {
   direction?: "row" | "column"; // main axis (default "column")
   padding?: number; // all four sides
@@ -17,15 +20,20 @@ export interface Style {
   gap?: number; // both axes
   rowGap?: number; // between rows (overrides `gap` on the row axis)
   columnGap?: number; // between columns (overrides `gap` on the column axis)
-  width?: number | "stretch"; // fixed px, or fill parent cross-axis
-  height?: number;
+  /** Fixed px (`200`), a percentage of the parent (`"50%"`), or `"stretch"` to fill the
+   *  parent's CROSS axis (NOT `width:100%` — for a proportional main-axis size use `grow`/`basis`). */
+  width?: Size | "stretch";
+  height?: Size; // fixed px or a percentage of the parent
   align?: "start" | "center" | "end"; // children, cross axis
   justify?: "start" | "center" | "end" | "space-between" | "space-around" | "space-evenly"; // children, main axis
   wrap?: boolean; // flex-wrap (real layout only)
-  grow?: number; // flex-grow (real layout only)
+  grow?: number; // flex-grow — share of leftover MAIN-axis space (real layout only)
   shrink?: number; // flex-shrink (real layout only)
-  minWidth?: number; // (real layout only)
-  maxWidth?: number; // (real layout only) — e.g. chat bubbles hug short / wrap long
+  basis?: Size; // flex-basis — the proportional main-axis size before grow/shrink (real layout only)
+  minWidth?: Size; // (real layout only)
+  maxWidth?: Size; // (real layout only) — e.g. chat bubbles hug short / wrap long
+  minHeight?: Size; // (real layout only)
+  maxHeight?: Size; // (real layout only)
   overflow?: "scroll" | "hidden"; // clip children to this box; "scroll" = wheel-scrollable
   absolute?: { x: number; y: number }; // take out of flow, place at viewport x/y
   background?: RGBA;

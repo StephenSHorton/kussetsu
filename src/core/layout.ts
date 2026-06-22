@@ -27,7 +27,7 @@ function intrinsic(node: ElementNode): { w: number; h: number } {
   const s = node.props.style ?? {};
   if (node.type === "text") {
     const t = measureText(textOf(node), s);
-    return { w: typeof s.width === "number" ? s.width : t.w, h: s.height ?? t.h };
+    return { w: typeof s.width === "number" ? s.width : t.w, h: typeof s.height === "number" ? s.height : t.h };
   }
   const pad = s.padding ?? 0;
   const gap = s.gap ?? 0;
