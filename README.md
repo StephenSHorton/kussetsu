@@ -113,6 +113,8 @@ boot(); // wrapped (not bare top-level await) so it compiles on every toolchain
   Kussetsu stops the render loop so it never paints a dead device; there's **no
   auto-recovery**, so prompt a reload. (`<GpuCanvas>` also shows its `fallback`.)
 - `onError(error)` — an uncaptured GPU error (validation / out-of-memory). Advisory.
+- `debug` (default `false`) — show a small corner perf overlay (fps · frame-ms · draw counts).
+  A single opaque canvas hides DevTools' element/perf panels; this puts a readout back.
 
 Resizing is automatic: Kussetsu watches the canvas with a `ResizeObserver` (so a canvas
 in a resizable panel / collapsing sidebar repaints at the new size), plus the window

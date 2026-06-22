@@ -76,6 +76,7 @@ async function boot() {
   const root = await createGpuRoot(canvas, {
     camera: false,
     textSelectable: true,
+    debug: true,
     onDeviceLost: (info) => console.warn(info.reason, info.message),
     onError: (err) => console.error(err),
   });
@@ -122,6 +123,7 @@ function Root() {
       className="stage"
       style={{ width: "100vw", height: "100vh" }}
       camera={false}
+      debug
       textSelectable
       fallback={<p>This app needs a WebGPU-capable browser.</p>}
       onCreated={(root: GpuRoot) => root.requestRender()}

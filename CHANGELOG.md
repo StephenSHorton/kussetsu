@@ -7,6 +7,10 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`debug` option** (`createGpuRoot` / `<GpuCanvas>`) — an opt-in corner perf overlay showing
+  fps · frame-ms · draw counts (rect / glass / material / particle). A single opaque canvas
+  otherwise hides DevTools' element + perf panels.
+
 - **`root.setGlassOverride(params | null)`** (also `useGpuRoot().setGlassOverride`) — a
   root-scoped glass override (partial, merged over `GLASS_DEFAULTS`; `null` clears). The
   sound alternative to the process-wide `glassTuning` global, which is now documented as

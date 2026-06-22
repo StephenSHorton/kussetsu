@@ -49,6 +49,7 @@ export function GpuCanvas({
   pageScroll,
   textSelectable,
   background,
+  debug,
   onDeviceLost,
   onError,
 }: GpuCanvasProps) {
@@ -84,6 +85,7 @@ export function GpuCanvas({
           pageScroll,
           textSelectable,
           background,
+          debug,
           onDeviceLost: (info) => {
             setFailed(true); // device lost → show the fallback ("rendering lost, reload")
             onDeviceLost?.(info);
@@ -118,7 +120,7 @@ export function GpuCanvas({
     // onCreated is intentionally not a dep — recreating the root on a new callback identity
     // would be surprising; we call the latest-at-creation-time handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camera, pageScroll, textSelectable, background]);
+  }, [camera, pageScroll, textSelectable, background, debug]);
 
   // (Re)paint the React subtree whenever the children or the root change.
   useEffect(() => {

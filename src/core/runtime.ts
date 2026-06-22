@@ -51,6 +51,9 @@ export interface GpuRootOptions {
   onDeviceLost?: (info: { reason: string; message: string }) => void;
   /** Called with uncaptured GPU errors (validation/out-of-memory). Advisory; the loop continues. */
   onError?: (error: unknown) => void;
+  /** Show a small dev perf overlay (fps · frame-ms · draw counts) in the corner. Default false.
+   *  Since a single opaque canvas hides DevTools' element/perf affordances, this puts them back. */
+  debug?: boolean;
 }
 
 export interface GpuRoot {
@@ -99,6 +102,36 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   const container: Container = { kind: "container", canvas, children: [], dirty: true };
   let focusedId: number | null = null;
   let glassOverride: GlassParams | null = null; // root-scoped glass override (setGlassOverride)
+
+  // Dev perf overlay (opts.debug): a small DOM readout of fps / frame-ms / draw counts, since a
+  // single opaque canvas hides DevTools' element + perf panels. renderFrame accumulates into these;
+  // a timer snapshots them ~2x/sec.
+  let debugEl: HTMLElement | null = null;
+  let dbgFrames = 0;
+  let dbgMs = 0;
+  let dbgRects = 0, dbgGlass = 0, dbgMat = 0, dbgPart = 0;
+  let dbgTimer = 0;
+  if (opts.debug) {
+    debugEl = document.createElement("div");
+    Object.assign(debugEl.style, {
+      position: "absolute", top: "8px", left: "8px", zIndex: "100", pointerEvents: "none",
+      font: "11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace",
+      color: "#9ef0c0", background: "rgba(0,0,0,0.62)", padding: "5px 8px", borderRadius: "6px",
+      whiteSpace: "pre", letterSpacing: "0.02em",
+    } as Partial<CSSStyleDeclaration>);
+    host.appendChild(debugEl);
+    let dbgLast = performance.now();
+    dbgTimer = window.setInterval(() => {
+      const now = performance.now();
+      const elapsed = (now - dbgLast) / 1000; // real elapsed — robust if the timer is throttled
+      dbgLast = now;
+      const fps = elapsed > 0 ? Math.round(dbgFrames / elapsed) : 0;
+      const ms = dbgFrames ? dbgMs / dbgFrames : 0;
+      debugEl!.textContent = `kussetsu · ${fps} fps · ${ms.toFixed(1)} ms\n${dbgRects} rect · ${dbgGlass} glass · ${dbgMat} mat · ${dbgPart} particle`;
+      dbgFrames = 0;
+      dbgMs = 0;
+    }, 500);
+  }
 
   // A material shader's compile failure is detected asynchronously; when the painter flags one,
   // repaint so the frame that already drew the (invalid) pipeline recovers.
@@ -506,6 +539,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     if (stopped) return; // device lost / torn down — don't touch a dead GPU (also guards frame())
     const root = rootElement();
     if (!root) return;
+    const t0 = debugEl ? performance.now() : 0; // perf overlay timing
     const { cssWidth, cssHeight } = painter.size();
     layoutWithYoga(root, cssWidth, cssHeight, opts.textSelectable);
     viewportH = cssHeight;
@@ -589,6 +623,11 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     if (materialsPresent && materials.some((m) => m.animated)) container.dirty = true;
     if (particlesPresent) container.dirty = true;
     if (opts.background) container.dirty = true; // animated background shader
+    if (debugEl) {
+      dbgFrames++;
+      dbgMs += performance.now() - t0;
+      dbgRects = rects.length; dbgGlass = glass.length; dbgMat = materials.length; dbgPart = particles?.count ?? 0;
+    }
   }
 
   let rafId = 0;
@@ -713,6 +752,8 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       cancelAnimationFrame(rafId);
       cancelInertia();
       clearTimeout(timerId);
+      clearInterval(dbgTimer);
+      debugEl?.remove();
       resizeObserver?.disconnect();
       removeEventListener("resize", onResize);
       host.removeEventListener("pointerdown", onPointerDown);
