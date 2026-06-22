@@ -25,6 +25,9 @@ const NAV_GLASS: GlassSpec = { refraction: 0.06, blur: 0, tint: 0.06, tintColor:
 const CARD_GLASS: GlassSpec = { refraction: 0.09, blur: 0, tint: 0.07, tintColor: COOL, rim: 16, specular: 0.1, dispersion: 0.06 };
 const CTA_GLASS: GlassSpec = { refraction: 0.1, blur: 0, tint: 0.05, tintColor: COOL, rim: 16, specular: 0.16, dispersion: 0.07 };
 const PANE_GLASS: GlassSpec = { refraction: 0.12, blur: 0, tint: 0.05, tintColor: COOL, rim: 18, specular: 0.14, dispersion: 0.09 };
+// Dark-tinted glass for the code card: resolves dark in the body (code stays readable over the
+// moving lamp) while the rim still refracts + disperses the light — frosted-dark glass.
+const CODE_GLASS: GlassSpec = { refraction: 0.05, blur: 0, tint: 0.62, tintColor: [0.05, 0.06, 0.13, 1], rim: 13, specular: 0.08, dispersion: 0.05 };
 
 // Lamp effect (à la Aceternity): thin bright tubes + soft glow CONES on deep navy. Several lamps
 // spaced down the page that SCROLL WITH IT (u.c0.x = page scroll, world Y → screen). Small,
@@ -278,6 +281,72 @@ function Features({ vw }: { vw: number }) {
   );
 }
 
+// Syntax-coloured code, rendered as rows of tinted <text> spans (the painter lays inline
+// multi-colour text tight via charAdvance). Colours read on the dark glass card.
+type CodeKind = "kw" | "str" | "tag" | "fn" | "attr" | "num";
+type CodeSeg = { text: string; kind?: CodeKind };
+const CODE_BASE: RGBA = [0.74, 0.78, 0.9, 1];
+const CODE_COLOR: Record<CodeKind, RGBA> = {
+  kw: [0.82, 0.66, 1, 1],
+  str: [0.55, 0.86, 0.62, 1],
+  tag: [0.5, 0.8, 1, 1],
+  fn: [0.98, 0.82, 0.5, 1],
+  attr: [0.66, 0.72, 0.88, 1],
+  num: [0.96, 0.62, 0.52, 1],
+};
+// The real API: createGpuRoot(canvas) → root.render(<App/>), authored in <view>/<text>.
+const GET_STARTED_CODE: CodeSeg[][] = [
+  [{ text: "import ", kind: "kw" }, { text: "{ " }, { text: "createGpuRoot", kind: "fn" }, { text: " } " }, { text: "from ", kind: "kw" }, { text: "\"kussetsu\"", kind: "str" }, { text: ";" }],
+  [],
+  [{ text: "function ", kind: "kw" }, { text: "App", kind: "fn" }, { text: "() {" }],
+  [{ text: "  return ", kind: "kw" }, { text: "(" }],
+  [{ text: "    " }, { text: "<view ", kind: "tag" }, { text: "glass", kind: "attr" }, { text: "={{ refraction: " }, { text: "0.1", kind: "num" }, { text: ", dispersion: " }, { text: "0.07", kind: "num" }, { text: " }}" }],
+  [{ text: "      " }, { text: "style", kind: "attr" }, { text: "={{ padding: " }, { text: "28", kind: "num" }, { text: ", radius: " }, { text: "22", kind: "num" }, { text: ", gap: " }, { text: "10", kind: "num" }, { text: " }}>" }],
+  [{ text: "      " }, { text: "<text ", kind: "tag" }, { text: "style", kind: "attr" }, { text: "={{ fontWeight: " }, { text: "800", kind: "num" }, { text: " }}>" }, { text: "Hello, light.", kind: "str" }, { text: "</text>", kind: "tag" }],
+  [{ text: "    " }, { text: "</view>", kind: "tag" }],
+  [{ text: "  );" }],
+  [{ text: "}" }],
+  [],
+  [{ text: "const ", kind: "kw" }, { text: "root = " }, { text: "await ", kind: "kw" }, { text: "createGpuRoot", kind: "fn" }, { text: "(canvas);" }],
+  [{ text: "root.", }, { text: "render", kind: "fn" }, { text: "(" }, { text: "<App />", kind: "tag" }, { text: ");" }],
+];
+
+function GetStarted({ vw }: { vw: number }) {
+  const cardW = Math.min(560, vw - EDGE * 2);
+  return (
+    <view style={{ width: "stretch", height: 760, direction: "column", align: "center", justify: "center", gap: 28 }}>
+      <view style={{ width: Math.min(660, vw - EDGE * 2), direction: "column", align: "center", gap: 14 }}>
+        <text role="heading" level={2} style={{ fontSize: 44, fontWeight: 800, color: INK }}>Drop it in. Own every pixel.</text>
+        <text style={{ maxWidth: 600, fontSize: 18, fontWeight: 500, color: SLATE }}>{`Your real React, painted on WebGPU — hand it a canvas and render the same <view>/<text> you'd write anywhere. Refraction CSS has no syntax for, with the DOM kept invisible for accessibility.`}</text>
+      </view>
+      {/* install pill */}
+      <view glass={CARD_GLASS} style={{ direction: "row", align: "center", gap: 11, padding: 16, radius: 12, cornerSmoothing: 0.6 }}>
+        <text style={{ fontSize: 15, fontWeight: 700, color: FAINT }}>$</text>
+        <text style={{ fontSize: 15, fontWeight: 700, color: INK }}>npm i kussetsu</text>
+      </view>
+      {/* dark glass code card — readable, but the rim still refracts the lamp */}
+      <view glass={CODE_GLASS} style={{ width: cardW, direction: "column", gap: 2, padding: 26, radius: 20, cornerSmoothing: 0.7 }}>
+        {GET_STARTED_CODE.map((line, i) => (
+          <view key={i} style={{ direction: "row" }}>
+            {line.length === 0 ? (
+              <text style={{ fontSize: 14, color: CODE_BASE }}>{" "}</text>
+            ) : (
+              line.map((seg, j) => (
+                <text key={j} style={{ fontSize: 14, fontWeight: 500, color: seg.kind ? CODE_COLOR[seg.kind] : CODE_BASE }}>{seg.text}</text>
+              ))
+            )}
+          </view>
+        ))}
+      </view>
+      {/* CTAs — the Hero pairing */}
+      <view style={{ direction: "row", gap: 14, align: "center" }}>
+        <PillButton label="Get started" fill={ACCENT} onActivate={goRepo} />
+        <PillButton label="See the live demo" glass onActivate={goDemo} />
+      </view>
+    </view>
+  );
+}
+
 function Footer({ vw }: { vw: number }) {
   return (
     <view style={{ width: "stretch", height: 200, direction: "column", align: "center", justify: "center", gap: 10 }}>
@@ -307,6 +376,7 @@ export function MarketingPage() {
   // Static sections memoized so the per-frame tick only reconciles the gliding pane.
   const hero = useMemo(() => <Hero vw={vw} vh={vh} />, [vw, vh]);
   const features = useMemo(() => <Features vw={vw} />, [vw]);
+  const getStarted = useMemo(() => <GetStarted vw={vw} />, [vw]);
   const footer = useMemo(() => <Footer vw={vw} />, [vw]);
   const nav = useMemo(() => <Nav vw={vw} />, [vw]);
   return (
@@ -316,6 +386,7 @@ export function MarketingPage() {
         {hero}
         <PaneSection vw={vw} t={t} />
         {features}
+        {getStarted}
         {footer}
       </view>
       {nav}
