@@ -20,6 +20,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
+    "test": "node test/compat.test.mjs",
     "prepublishOnly": "npm run build:lib"
   },
   "keywords": [

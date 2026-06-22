@@ -12,6 +12,9 @@ export default defineConfig(({ command }) => ({
   // Project Pages serve under /<repo>/. Only the production build needs the prefix;
   // local dev stays at "/" (http://localhost:5280).
   base: command === "build" ? "/kussetsu/" : "/",
+  // The SITE build outputs to dist-site/ so it can't clobber the LIBRARY build's dist/
+  // (vite.lib.config.ts), which is what package.json main/types/exports point at.
+  build: { outDir: "dist-site" },
   plugins: [kussetsuCompatVite(), react()],
   server: { port: 5280 },
 }));

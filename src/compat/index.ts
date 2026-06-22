@@ -7,9 +7,9 @@
 // transforms, portals…). The failure mode is a compile error you read, not a blank box
 // you ship. It's a HEAD START for the supported subset, not "your app just works."
 //
-//   // vite.config.ts
-//   import kussetsuCompat from "kussetsu/compat";
-//   react({ babel: { plugins: [kussetsuCompat] } })
+//   // vite.config.ts  (runs in-repo today; not yet a published `kussetsu/compat` subpath)
+//   import { kussetsuCompatVite } from "./src/compat";
+//   plugins: [kussetsuCompatVite(), react()]  // BEFORE react() — it runs an enforce:'pre' pass
 //
 // See COVERAGE.md (what maps / what's a renderer feature in disguise) and DESIGN.md.
 

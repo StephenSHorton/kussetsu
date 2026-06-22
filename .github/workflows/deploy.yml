@@ -26,10 +26,10 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build # vite build — base is /kussetsu/ in production (see vite.config.ts)
+      - run: npm run build # vite build — base is /kussetsu/ in production, outputs to dist-site/
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: dist-site
 
   deploy:
     needs: build

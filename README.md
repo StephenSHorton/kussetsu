@@ -1,127 +1,166 @@
 # Kussetsu
 
-Author your UI in **plain React** while a custom renderer paints **every pixel on
-the GPU** (WebGPU/WGSL) — the DOM survives only as an **invisible, weightless layer
-for accessibility + input**.
+**R3F for 2D UI.** Author your interface in **plain React**, and a custom renderer
+paints **every pixel on the GPU** (WebGPU / WGSL). The DOM survives only as an
+**invisible, weightless layer for accessibility and input** — nothing you see is a
+DOM node. The cards, the text, the refractive glass, the focus ring are all WGSL
+output on a single `<canvas>`.
 
-No DOM is used for visuals: the cards, text, glass, and focus ring you see are all
-WGSL output on a single `<canvas>`.
+Because Kussetsu owns the framebuffer, it can do things CSS has no syntax for —
+live refractive glass over *any* content, GPU material shaders, spring physics —
+while a screen reader still reads a real `<h1>` / `<p>` / `<button>` and keyboard
+focus just works.
+
+**Live demo:** https://stephenshorton.github.io/kussetsu/
 
 > Kussetsu began as a DOM-based "glass as paint" component library. That approach hit
-> a hard wall (the browser compositor won't refract live pixels behind arbitrary /
-> portaled DOM). **Kussetsu is now the GPU renderer** — we own the framebuffer, so
-> the glass-anywhere problem (and a lot more) simply dissolves.
+> a hard wall — the browser compositor won't refract live pixels behind arbitrary /
+> portaled DOM. **Kussetsu is now the GPU renderer:** we own the framebuffer, so the
+> glass-anywhere problem (and a lot more) simply dissolves.
 
-## The loop
+## Install
 
 ```
-React (<view>/<text>)
-   │  authored as ordinary components
+npm i kussetsu
+```
+
+`react` (>=18.2) is a peer dependency. You need a **WebGPU-capable browser**
+(Chrome 113+, Edge 113+, Safari 18+, recent Firefox).
+
+## Quick start
+
+You write ordinary React. The only new vocabulary is two host elements —
+`<view>` (a box) and `<text>` (a string) — plus a GPU root to mount onto.
+
+```tsx
+import { createGpuRoot } from "kussetsu";
+
+function App() {
+  return (
+    <view glass={{ refraction: 0.1, dispersion: 0.07 }}
+      style={{ padding: 28, radius: 22, gap: 10 }}>
+      <text style={{ fontWeight: 800 }}>Hello, light.</text>
+    </view>
+  );
+}
+
+const canvas = document.querySelector("canvas")!; // must sit in a positioned parent
+const root = await createGpuRoot(canvas);
+root.render(<App />);
+```
+
+That's the whole API surface to get pixels on screen: `createGpuRoot(canvas, opts?)`
+returns a `GpuRoot` with `render()`, `frame()`, `requestRender()`, and `destroy()`.
+Importing `kussetsu` also pulls in the global JSX typings for `<view>` / `<text>`.
+
+The `<canvas>` must live inside a **positioned parent** — Kussetsu lays the
+invisible accessibility/input overlay directly over the canvas.
+
+### Options
+
+`createGpuRoot(canvas, opts)` takes a few flags:
+
+- `camera` (default `true`) — pan by dragging empty space, zoom on the wheel.
+  Pass `camera: false` for a fixed page.
+- `pageScroll` (default `false`) — the wheel scrolls the whole page vertically.
+- `textSelectable` (default `false`) — all text is drag-selectable + copyable.
+- `background` — a full-screen WGSL background shader (`fn material(uv, px) -> vec4f`)
+  rendered into the backdrop, so glass refracts it.
+
+Also exported: `useSpring` (interruptible spring-physics animation), and the live
+`glassTuning` object (`glassTuning.params` + `glassTuning.enabled` to override every
+glass panel at once, with `GLASS_DEFAULTS` as the reset baseline).
+
+## How it works
+
+```
+React (<view>/<text>)                    authored as ordinary components
+   │
    ▼
-react-reconciler (custom HostConfig, mutation mode)   src/hostConfig.ts
-   │  builds a plain-JS scene tree (no DOM)            src/scene.ts
+react-reconciler (custom HostConfig)     src/core/hostConfig.ts
+   │  builds a plain-JS scene tree        src/core/scene.ts
    ▼
-layout (hand-rolled flexbox; swap in Yoga/Taffy)      src/layout.ts
-   │  annotates x/y/w/h
-   ├─────────────► WebGPU painter (TWO passes)          src/webgpu.ts
-   │                 1) non-glass content → offscreen BACKDROP texture
-   │                    • instanced rounded-rect SDF pipeline (1 draw call)
-   │                    • text: 2D-canvas → texture → quad
-   │                 2) blit backdrop → canvas, then GLASS panels that
-   │                    SAMPLE the backdrop with refraction/frost/rim
-   │                    → glass refracts anything behind it, anywhere
-   │                 • GPU-painted focus ring
-   └─────────────► invisible semantics overlay         src/a11y.ts
-                     • one transparent <button>/<h1>/<p> proxy per node
-                     • correct roles/aria/tabindex, pooled + diffed
-                     • forwards pointer/keyboard → onActivate
-                     • focusin → FocusBridge → GPU paints the ring
+layout — Yoga (Facebook's flexbox, WASM) src/core/yogaLayout.ts
+   │  annotates x/y/w/h                    (src/core/layout.ts: measureText)
+   ├──────► WebGPU painter (two passes)    src/core/webgpu.ts
+   │          1) non-glass content → offscreen BACKDROP texture
+   │             • instanced rounded-rect SDF pipeline (1 draw call)
+   │             • text via a packed glyph atlas (instanced per-glyph quads)
+   │          2) blit backdrop → canvas, then GLASS panels that SAMPLE the
+   │             backdrop with refraction / dispersion / frost / rim
+   │             (ping-pong, so glass-over-glass composites correctly)
+   │          • GPU-painted focus ring; material + particle/post passes
+   └──────► invisible semantics overlay    src/core/a11y.ts
+              • one transparent <button>/<h1>/<p> proxy per node
+              • correct roles / aria / tabindex, pooled + diffed
+              • forwards pointer + keyboard → onActivate, drives the focus ring
 ```
 
 Round-trip: **click the invisible proxy → `onActivate` → React `setState` →
-reconciler commit → `resetAfterCommit` marks dirty → rAF re-layouts → GPU repaints.**
+reconciler commit → marks dirty → rAF re-layouts → GPU repaints.**
 
-## What this proves
-- React drives a non-DOM GPU renderer (the react-three-fiber trick, for 2D UI).
-- **Refractive glass that works *anywhere*.** Because we own the framebuffer, a
-  glass panel samples the real backdrop behind it and refracts it — over any
-  content, multiple elements at once, with no "capture a region" hack. This is
-  the exact effect the browser compositor forbade (the problem that started this).
-- **Canvas-native interaction:** drag the glass, pan the graph (drag empty space),
-  zoom around the cursor (wheel) — a {tx,ty,scale} camera applied in the collectors,
-  with all pointer + keyboard input (including drag) routed through the invisible
-  overlay. The wedge gesture (60fps zoom/pan of a node graph) the DOM is bad at.
-- Accessibility is **not** sacrificed: a screen reader reads a real `<h1>`,
-  two `<p>`s, and a labeled `<button>`; keyboard focus works; the focus ring is
-  GPU-painted (the bit Zed's GPUI deferred and Flutter Web shipped).
-- The whole thing is ~600 lines and runs in current Chrome.
+The published library is self-contained under `src/core/`. `src/examples/` is the
+demo / dev site, and `src/compat/` is the build-time migration on-ramp (below).
 
-## Closing the gaps (the spike → framework work)
-- **Layout — DONE.** The hand-rolled flexbox is replaced by **Yoga** (Facebook's
-  production flexbox, WASM) via `src/yogaLayout.ts`: rebuild a Yoga mirror of the
-  scene tree each pass, measure-funcs on text leaves, free recursively. The
-  `?react` demo shows real flex-wrap (which the toy couldn't do). `src/layout.ts`
-  remains only for `measureText`.
-- **Scrolling + clipping — DONE.** `overflow: "scroll" | "hidden"` clips children
-  to the container via a **per-instance clip rect in the shaders** (discard outside,
-  keeping the single instanced draw); the collectors apply a scroll offset and
-  intersect nested clips; the wheel routes to a scroll region under the cursor
-  (else zoom). The `?react` demo has a fixed-height list that clips + scrolls.
-- **Glass-over-glass — DONE.** Glass composites with a **ping-pong** between two
-  backdrop textures, so each panel refracts the accumulated result (base + earlier
-  glass). Two overlapping panels in `?react` show the top refracting the bottom.
-- **Draggable nodes — DONE.** The `?react` demo is now a little node editor —
-  every node card is `draggable` (pointer + arrow-key drag via the overlay).
+## kussetsu/compat — migrating an existing app
 
-- **Text — selection + wrapping (A) DONE.** Glyphs are still browser-shaped
-  (`fillText`), but `src/text.ts` adds the geometry a whole-string texture can't:
-  word-wrap via `Intl.Segmenter` (filling the layout measure-func) and per-character
-  x-positions via prefix `measureText` (correctly kerned). Selection is two integer
-  offsets; the `?react` paragraph is click-drag selectable with a real multi-line
-  highlight + caret. LTR only — bidi/complex-script carets are out of scope.
-- **Text — editing + IME (C) DONE.** An editable field overlays a *transparent*
-  real `<input>`; the browser owns keyboard + **composition/IME**, and `input`
-  events sync the value back to React → GPU repaint, with a GPU-painted caret at
-  the input's selection. This is the standard canvas-editor move (Excalidraw) that
-  sidesteps "a `<canvas>` can't receive composition events." (Focus on a
-  `setTimeout(0)` so the default mousedown doesn't steal it.)
-- **Text — glyph atlas (B) DONE.** Whole-string textures are replaced by a packed
-  **glyph atlas**: each glyph is rasterized once (supersampled at a base size) into
-  a shared atlas texture; text is drawn as **instanced per-glyph quads** tinted by
-  a per-instance color. One draw for all text, reused glyphs, crisp when scaled
-  down. (Positions use per-glyph advance — kerning slightly off vs the browser's
-  shaped string, imperceptible for UI text; the old `getText`/text pipeline is dead.)
+`src/compat/` is a **build-time** on-ramp: it tag-aliases an existing React app's
+HTML (`div`→`view`, `p`/`h*`/`span`→`text`, `button`→`view`+role, text input→editable),
+maps inline `style` and a bounded Tailwind subset onto Kussetsu's `Style`, and — for
+everything it can't paint (icons/images, shadows/borders, gradients, grid, hover/
+responsive variants, transforms, portals) — **fails loud at build time with a
+file:line**, not a blank box you ship. It's a head start for the supported subset,
+not "your app just works." See `src/compat/COVERAGE.md` and `src/compat/DESIGN.md`.
+(It runs in-repo today; it isn't published as a `kussetsu/compat` subpath yet.)
 
-## A real app on it
-The **default route at `:5280` is a glass chat app** (`src/ChatApp.tsx`) — not a
-feature demo, an actual app: a sidebar of conversations (click to switch), a
-scrolling thread with wrapping + selectable bubbles, a **frosted-glass header +
-composer that refract the messages**, and an **editable composer** (real `<input>`
-overlay, IME-capable) with a working **Send**. Everything is GPU-painted; the DOM
-only carries semantics (roles, focus ring, find-in-page) and input.
-Routes: `/` = chat app · `/?stress` = 10k-node demo · `/?demo` = feature kitchen-sink.
+## Develop
 
-## What it deliberately does NOT (yet) solve
-Bidi / complex-script (RTL, Arabic/Indic) text selection, MSDF (crisp at *any*
-zoom — the atlas softens past its base size), and a thousand edge cases.
-Still a feasibility spike, not a framework.
-
-## Stress demo (the validation artifact)
-The default route is a **10,000-node graph**: every node is a GPU rect (ONE
-instanced draw, camera applied in-shader), and labels + DOM accessibility proxies
-are **virtualized** to only the on-screen, legible nodes.
-
-Measured (rAF-independent benchmark, `window.__bench()`): **~3 ms/frame at 10k nodes**
-with 180 on-screen nodes labelled + screen-reader accessible — ~5× under the 60fps
-budget — while the DOM holds **181 elements, not 10,000.** Cmd+F finds any node;
-every visible node is focusable; the glass lens is draggable. This is the wedge:
-"React Flow, but fast at 10k nodes *and* still accessible" (DOM builders wall at
-50–200 nodes).
-
-## Run
 ```
 npm install
-npm run dev          # http://localhost:5280  (10k-node stress demo)
-# http://localhost:5280/?react   — the React-reconciler / glass demo
+npm run dev          # http://localhost:5280  (default = the marketing site)
 ```
-Requires a WebGPU-capable browser (Chrome 113+, Safari 18+, Firefox recent).
+
+Pick a demo by query param:
+
+| Route        | What                                                   |
+|--------------|--------------------------------------------------------|
+| `/`          | Marketing site + the capability demos + a live glass-tuning panel |
+| `?kitchen`   | Kitchen-sink demo                                      |
+| `?stress`    | 10,000-node graph (~3 ms/frame, ~180 nodes labelled + screen-reader accessible; DOM holds ~181 elements, not 10k) |
+| `?compat`    | The HTML/Tailwind migration on-ramp                    |
+| `?menu`      | The ⌘K glass command palette over a live feed          |
+| `?fx`        | Material-shader gallery                                |
+| `?spring`    | Spring-physics morph demo                              |
+| `?showcase`  | The old tabbed showcase (incl. the glass chat app)     |
+
+## Build
+
+```
+npm run build        # the GitHub Pages site (base /kussetsu/)  → dist-site/
+npm run build:lib    # the publishable package (ESM + .d.ts)    → dist/
+node test/compat.test.mjs   # deterministic compat-mapper tests
+```
+
+`prepublishOnly` runs `build:lib`, so `npm publish` always ships the freshly-built
+library.
+
+## Status — honest
+
+Kussetsu is **early** (`0.1.x`, not yet published to npm at the time of writing).
+It is a real renderer with a real published-library shape, not a finished framework.
+Known caveats:
+
+- **WebGPU-only.** No software/WebGL fallback — unsupported browsers see nothing.
+- **Type-checking is loose.** The build emits declarations with `skipLibCheck`
+  (the react-reconciler typings aren't fully validated), and `<view>`/`<text>`
+  deliberately shadow SVG's intrinsic elements — so consumers should keep
+  `skipLibCheck: true` (the default in Vite / Next / CRA).
+- **Text is browser-shaped.** LTR only — bidi / complex-script (RTL, Arabic, Indic)
+  caret + selection is out of scope, and the glyph atlas softens past its base size
+  (no MSDF yet, so it isn't crisp at *arbitrary* zoom).
+- A thousand CSS edge cases are intentionally unsupported; `kussetsu/compat` refuses
+  them loudly rather than approximating.
+
+## License
+
+Being finalized — a `LICENSE` file will land before the first npm publish.
