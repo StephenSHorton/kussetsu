@@ -15,6 +15,8 @@ export default defineConfig(({ command }) => ({
   // The SITE build outputs to dist-site/ so it can't clobber the LIBRARY build's dist/
   // (vite.lib.config.ts), which is what package.json main/types/exports point at.
   build: { outDir: "dist-site" },
-  plugins: [kussetsuCompatVite(), react()],
+  // Skip the renderer's own core — it authors real DOM (<div>/<canvas>, e.g. GpuCanvas)
+  // and is never a compat migration target; only example/consumer code gets rewritten.
+  plugins: [kussetsuCompatVite({ exclude: /\/src\/core\// }), react()],
   server: { port: 5280 },
 }));

@@ -14,17 +14,21 @@ import kussetsuCompat from "./babel.ts";
 export interface CompatOptions {
   /** Which files to transform. Default: .jsx/.tsx under the project. */
   include?: RegExp;
+  /** Files to skip even if they match `include` — e.g. the renderer's own core, which
+   *  legitimately authors real DOM (`<div>`/`<canvas>`) and isn't a migration target. */
+  exclude?: RegExp;
 }
 
 export function kussetsuCompatVite(options: CompatOptions = {}): Plugin {
   const include = options.include ?? /\.[jt]sx$/;
+  const { exclude } = options;
   return {
     name: "kussetsu-compat",
     enforce: "pre", // run BEFORE @vitejs/plugin-react's OXC JSX transform
     async transform(code, id) {
       if (id.includes("/node_modules/")) return null;
       const clean = id.split("?")[0];
-      if (!include.test(clean)) return null;
+      if (!include.test(clean) || exclude?.test(clean)) return null;
       // Cheap skip: only pay the parse cost on files that could contain migratable HTML.
       if (!/<\s*[a-z][a-z0-9]*[\s/>]/.test(code)) return null;
 
