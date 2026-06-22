@@ -6,7 +6,7 @@
 // error, so if the typing ever goes loose (e.g. props collapse to `any`, or the
 // <view>/<text> SVG-intrinsic collision comes back), this file stops compiling.
 import { createGpuRoot, GpuCanvas, View, Text, rgba, useSpring } from "kussetsu";
-import type { GpuRoot, Style, RGBA, ParticleSpec, ViewProps, ActivateEvent } from "kussetsu";
+import type { GpuRoot, Style, RGBA, ParticleSpec, MaterialSpec, PostProcess, ViewProps, ActivateEvent } from "kussetsu";
 
 // ── color helper ──────────────────────────────────────────────────────────────
 const indigo: RGBA = rgba("#5C5CFF");
@@ -19,6 +19,11 @@ void named;
 const bar: Style = { direction: "row", justify: "space-between", gap: 12 };
 const dots: ParticleSpec = { count: 200, gravity: 20 };
 const headingProps: ViewProps = { role: "heading", level: 1, style: { fontWeight: 800 } };
+// GPU effects: material (with live uniforms + backdrop), particles, postProcess
+const mat: MaterialSpec = { shader: "fn material(uv: vec2f, px: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }", uniforms: () => [1, 2, 3], backdrop: true, animated: true };
+const bloom: PostProcess = "bloom";
+void mat;
+void bloom;
 // per-side padding + gap axes
 const card: Style = { paddingX: 16, paddingY: 8, paddingTop: 12, rowGap: 6, columnGap: 10 };
 void bar;
@@ -97,6 +102,7 @@ function Root() {
       <View style={{ padding: 28, background: rgba("#0b0e14") }}>
         <Text style={{ fontWeight: 800 }}>Hello, light.</Text>
       </View>
+      <View material={mat} postProcess="bloom" particles={dots} style={{ width: 240, height: 160 }} />
     </GpuCanvas>
   );
 }
@@ -118,8 +124,11 @@ const badColor = <Text style={{ color: "red" }}>x</Text>;
 const badProp = <View notARealProp />;
 // @ts-expect-error rgba() takes a string, not a number.
 const badRgba = rgba(0xff0000);
+// @ts-expect-error postProcess only accepts the "bloom" literal.
+const badPost = <View postProcess="glow" />;
 void badBg;
 void badJustify;
 void badColor;
 void badProp;
 void badRgba;
+void badPost;

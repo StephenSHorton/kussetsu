@@ -490,6 +490,7 @@ export class Painter {
   private materialBuffers: GPUBuffer[] = [];
   private materialBGL!: GPUBindGroupLayout;
   private materialPL!: GPUPipelineLayout;
+  private warnedUniforms = new Set<string>(); // shaders we've already warned about (>16 uniform floats)
 
   // A full-screen background shader rendered INTO the backdrop (pass 0) so glass refracts it.
   private bgShader: string | null = null;
@@ -876,6 +877,18 @@ export class Painter {
     let p = this.materialPipelines.get(shader);
     if (p) return p;
     const module = this.device.createShaderModule({ code: MATERIAL_HEAD + shader + MATERIAL_TAIL });
+    // Map any compile error back to the AUTHOR's source (subtract the wrapper's line count),
+    // so a typo points at your shader line instead of a blank tile + a line in generated code.
+    module.getCompilationInfo?.().then((wgsl) => {
+      const errs = wgsl.messages.filter((m) => m.type === "error");
+      if (!errs.length) return;
+      const head = MATERIAL_HEAD.split("\n").length - 1;
+      console.error(
+        "[kussetsu] material shader failed to compile — it must define " +
+          "`fn material(uv: vec2f, px: vec2f) -> vec4f`:\n" +
+          errs.map((m) => `  line ${Math.max(1, m.lineNum - head)}: ${m.message}`).join("\n"),
+      );
+    }).catch(() => {});
     p = this.device.createRenderPipeline({
       layout: this.materialPL,
       vertex: { module, entryPoint: "vs" },
@@ -899,6 +912,10 @@ export class Painter {
       a[0] = m.x; a[1] = m.y; a[2] = m.w; a[3] = m.h;
       a[4] = cssW; a[5] = cssH; a[6] = dpr; a[7] = time;
       a[8] = pointer[0]; a[9] = pointer[1]; a[10] = m.radius; a[11] = 0;
+      if (m.uniforms.length > 16 && !this.warnedUniforms.has(m.shader)) {
+        this.warnedUniforms.add(m.shader);
+        console.warn(`[kussetsu] material 'uniforms' has ${m.uniforms.length} floats; only the first 16 (u.c0..u.c3) are uploaded — the rest are ignored.`);
+      }
       for (let k = 0; k < 16; k++) a[12 + k] = m.uniforms[k] ?? 0;
       this.device.queue.writeBuffer(buf, 0, a);
       const pipeline = this.getMaterialPipeline(m.shader);

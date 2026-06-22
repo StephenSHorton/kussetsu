@@ -50,18 +50,45 @@ export interface GlassSpec {
   dispersion?: number; // default 0.025 — chromatic rim split (the colorful edge)
 }
 
-// A node with props.material is filled by a CUSTOM WGSL fragment shader — the "shader
-// material" primitive ("R3F materials, for 2D UI"). `shader` must define
-//   fn material(uv: vec2f, px: vec2f) -> vec4f   // uv 0..1 within the element; px = screen css px
-// and may read the standard uniforms `u` (u.res.w = time secs, u.res.xy = viewport, u.ptr.xy =
-// pointer css px, u.c0..u.c3 = your `uniforms`) and, if `backdrop` is set, sampleBackdrop(cssPx)
-// to read the live scene behind it (ripple/heat-haze/loupe/spotlight). See core/webgpu.ts.
+/**
+ * Fill a node with a CUSTOM WGSL fragment shader — the "shader material" primitive
+ * ("R3F materials, for 2D UI"). Use it as `<View material={{ shader }} />`.
+ *
+ * Your `shader` string MUST define a `material` function:
+ * ```wgsl
+ * fn material(uv: vec2f, px: vec2f) -> vec4f {
+ *   //   uv — 0..1 within the element's box
+ *   //   px — screen position, CSS px
+ *   //   returns straight-alpha RGBA (auto-clipped to the node's rounded rect)
+ *   return vec4f(uv, 0.0, 1.0);
+ * }
+ * ```
+ * In scope you get the uniform `u` plus helpers:
+ * - `u.res.xy` = viewport (css px), `u.res.w` = time (seconds)
+ * - `u.ptr.xy` = pointer (css px), `u.ptr.z` = the node's corner radius
+ * - `u.rect` = element rect `(x, y, w, h)`; `u.c0`..`u.c3` = your `uniforms` (below)
+ * - helpers: `noise2(p)`, `fbm(p)`, `hsv2rgb(c)`, and — when `backdrop` is set —
+ *   `sampleBackdrop(cssPx)` to read the live scene behind the node (ripple / heat-haze / loupe).
+ */
 export interface MaterialSpec {
+  /** WGSL defining `fn material(uv: vec2f, px: vec2f) -> vec4f`. A compile error is logged
+   *  to the console with the line number mapped back to YOUR source (not the wrapper). */
   shader: string;
-  uniforms?: number[] | (() => number[]); // up to 16 custom floats → u.c0..u.c3 (fn = resolved per frame, for live values)
-  backdrop?: boolean; // shader can sample the scene behind it
-  animated?: boolean; // request a continuous repaint loop
+  /**
+   * Up to **16** custom floats, packed into four `vec4f`s in order:
+   * `u.c0 = [0,1,2,3]`, `u.c1 = [4,5,6,7]`, `u.c2 = [8,9,10,11]`, `u.c3 = [12,13,14,15]`
+   * — so index `5` is `u.c1.y`. Pass a `() => number[]` to resolve them per frame (live values).
+   * Floats past the 16th are ignored (with a dev warning).
+   */
+  uniforms?: number[] | (() => number[]);
+  /** Let the shader call `sampleBackdrop(cssPx)` to read the live scene behind this node. */
+  backdrop?: boolean;
+  /** Request a continuous repaint loop (for time-animated shaders that read `u.res.w`). */
+  animated?: boolean;
 }
+
+/** A full-screen post effect applied only WITHIN a node's box — `<View postProcess="bloom" />`. */
+export type PostProcess = "bloom";
 
 export type Role = "button" | "heading" | "paragraph";
 
@@ -89,10 +116,13 @@ export interface NodeProps {
   editable?: boolean; // view: a text field (transparent <input> overlay drives it)
   value?: string; // editable field current value
   onChange?: (v: string) => void; // editable field change
-  glass?: GlassSpec; // present => painted as refractive glass
-  material?: MaterialSpec; // present => filled by a custom WGSL fragment shader
-  particles?: import("./particles").ParticleSpec; // present => emits an instanced particle field over this box
-  postProcess?: "bloom"; // present => a full-screen effect is applied, but only WITHIN this node's box
+  glass?: GlassSpec; // present => painted as refractive glass (samples the backdrop)
+  /** Fill this node with a custom WGSL fragment shader. See {@link MaterialSpec}. */
+  material?: MaterialSpec;
+  /** Emit an instanced, pointer-reactive particle field over this node's box. See {@link ParticleSpec}. */
+  particles?: import("./particles").ParticleSpec;
+  /** Apply a full-screen post effect, masked to this node's box. See {@link PostProcess}. */
+  postProcess?: PostProcess;
   children?: ReactNode;
 }
 

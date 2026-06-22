@@ -21,7 +21,7 @@ export { GpuCanvas, type GpuCanvasProps } from "./GpuCanvas";
 export { View, Text, type ViewProps, type TextProps } from "./components";
 
 // Authoring types (the node props + style).
-export type { Style, NodeProps, GlassSpec, MaterialSpec, Role, RGBA, Camera, ActivateEvent } from "./scene";
+export type { Style, NodeProps, GlassSpec, MaterialSpec, PostProcess, Role, RGBA, Camera, ActivateEvent } from "./scene";
 export type { ParticleSpec } from "./particles";
 
 // Color helper: turn a hex / rgb() / named color into a Style-ready RGBA tuple

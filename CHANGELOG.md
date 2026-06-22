@@ -7,6 +7,12 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **Shader/effect docs + feedback.** The WGSL `material` contract (the `fn material` signature,
+  in-scope helpers, and the `uniforms` → `u.c0..u.c3` lane mapping) is now full JSDoc on
+  `MaterialSpec` (shows on hover), and `particles` / `postProcess` are documented in the README.
+  A `material` shader that fails to compile now logs a console error with the line mapped back
+  to **your** source; passing more than 16 `uniforms` floats warns (the rest are ignored).
+  Exported a `PostProcess` type.
 - **Hover + richer activation.** `onPointerEnter` / `onPointerLeave` (hover) on any node,
   and `onActivate` now receives an `ActivateEvent` (`button` + `metaKey` / `shiftKey` / …) —
   so you can build hover/highlight and cmd-click in plain React without a shader.

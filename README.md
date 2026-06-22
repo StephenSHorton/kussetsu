@@ -140,6 +140,34 @@ math), `useSpring` (interruptible spring-physics animation), and the live `glass
 object (`glassTuning.params` + `glassTuning.enabled` to override every glass panel at
 once, with `GLASS_DEFAULTS` as the reset baseline).
 
+### GPU effects: glass, shaders, particles
+
+These are the "things CSS has no syntax for" props — pass them to any `<View>`:
+
+- **`glass`** — paint the node as refractive glass that samples the live backdrop
+  (`refraction` / `blur` / `tint` / `dispersion` / …). Overlap two and the top refracts
+  the bottom.
+- **`material`** — fill the node with a **custom WGSL fragment shader**. Your string must
+  define `fn material(uv: vec2f, px: vec2f) -> vec4f`; in scope you get `u` (`u.res.w` =
+  time, `u.res.xy` = viewport, `u.ptr` = pointer, `u.c0..u.c3` = your `uniforms`) and the
+  helpers `noise2` / `fbm` / `hsv2rgb` / `sampleBackdrop`. `uniforms` is up to 16 floats
+  packed into `u.c0..u.c3` (so index 5 is `u.c1.y`); pass `() => number[]` for live values.
+  A compile error logs to the console with the line mapped back to **your** source.
+
+  ```tsx
+  <View material={{
+    shader: `fn material(uv: vec2f, px: vec2f) -> vec4f {
+      let t = u.res.w;                      // seconds
+      return vec4f(hsv2rgb(vec3f(fbm(uv*4.0 + t*0.1), 0.6, 1.0)), 1.0);
+    }`,
+    animated: true,                          // request a continuous repaint loop
+  }} style={{ width: 240, height: 160, radius: 16 }} />
+  ```
+
+- **`particles`** — emit an instanced, pointer-reactive particle field over the box
+  (`count` / `color` / `gravity` / `speed` / …; see `ParticleSpec`).
+- **`postProcess: "bloom"`** — apply a full-screen post effect masked to the node's box.
+
 ## How it works
 
 ```
