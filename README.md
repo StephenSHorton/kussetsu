@@ -241,7 +241,18 @@ everything it can't paint (icons/images, shadows/borders, gradients, grid, hover
 responsive variants, transforms, portals) — **fails loud at build time with a
 file:line**, not a blank box you ship. It's a head start for the supported subset,
 not "your app just works." See `src/compat/COVERAGE.md` and `src/compat/DESIGN.md`.
-(It runs in-repo today; it isn't published as a `kussetsu/compat` subpath yet.)
+
+**How to use it today:** it's an **in-repo recipe**, not yet a published import — clone the repo
+and run the `?compat` demo, or vendor `src/compat/` into your app and wire the Vite plugin in
+your `vite.config.ts` (it runs an `enforce: 'pre'` pass, so place it **before** `react()`):
+
+```ts
+import { kussetsuCompatVite } from "./compat"; // vendored from src/compat/
+plugins: [kussetsuCompatVite(), react()];
+```
+
+Shipping it as an installable `kussetsu/compat` subpath (a Node plugin entry + a separate
+browser runtime resolver, with `@babel/core` as a peer dep) is tracked as a future enhancement.
 
 ## Develop
 
