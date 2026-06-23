@@ -23,6 +23,7 @@
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json && dts-bundle-generator -o dist/index.d.ts --project tsconfig.json --no-check src/core/index.ts",
     "test": "node test/color.test.mjs && node test/text.test.mjs && node test/layout.test.mjs && node test/collect.test.mjs && node test/compat.test.mjs && node test/reconciler.test.mjs && npm run test:types",
     "test:types": "npm run build:lib && tsc --noEmit -p test/types/tsconfig.json",
+    "test:browser": "npm run build && node test/browser.test.mjs",
     "prepublishOnly": "npm run build:lib"
   },
   "keywords": [
@@ -67,6 +68,7 @@
     "@vitejs/plugin-react": "^6.0.2",
     "@webgpu/types": "^0.1.70",
     "dts-bundle-generator": "^9.5.1",
+    "playwright": "^1.61.0",
     "react": "^19.2.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"

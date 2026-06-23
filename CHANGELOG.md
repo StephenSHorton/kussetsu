@@ -7,6 +7,15 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **Headless-WebGPU smoke test** (`npm run test:browser`, `test/browser.test.mjs` + a `browser`
+  CI workflow) — mounts the built demo in real (headless, software-WebGPU) Chromium and asserts
+  the renderer comes up clean: a WebGPU adapter is present, a `<canvas>` mounts, the
+  WebGPU-unsupported fallback isn't shown, and **no GPU/shader error reaches the console**. This
+  is the one check the headless Node suite + `vite build` can't do — a WGSL compile/validation
+  error only surfaces when the GPU creates/uses a pipeline (it would have caught the box-shadow
+  `fwidth` bug). Kept a separate CI workflow so any headless-WebGPU flakiness doesn't block the
+  main suite. (Road to 1.0 — Pillar 2)
+
 - **`opacity` Style field — true group opacity** (`0..1`). A node with `opacity < 1` and its whole
   subtree fade as **one unit**: the subtree renders at full alpha into an offscreen texture, then
   composites onto the scene scaled by the opacity — so overlapping children don't double-darken

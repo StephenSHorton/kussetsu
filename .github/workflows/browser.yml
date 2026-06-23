@@ -1,0 +1,24 @@
+name: browser smoke (WebGPU)
+
+# Mounts the built demo in real (headless, software-WebGPU) Chromium and asserts the renderer
+# comes up clean — the one check the headless Node suite + `vite build` can't do (a WGSL
+# compile/validation error only surfaces when the GPU creates/uses a pipeline). Kept a SEPARATE
+# workflow from `test` so any headless-WebGPU flakiness doesn't block the main suite.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # the full Chromium (channel: "chromium") + its OS deps — the headless-shell has no WebGPU
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser # builds dist-site, then drives it in headless WebGPU
