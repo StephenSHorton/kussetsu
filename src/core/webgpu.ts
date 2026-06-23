@@ -583,9 +583,10 @@ function glyphBaseFor(size: number): number {
   return size <= GLYPH_BASE ? GLYPH_BASE : Math.min(256, Math.ceil(size / 32) * 32);
 }
 // One shared atlas for every (weight, glyph) pair. A real multi-weight UI burns through
-// the 1024² budget fast — each weight is a distinct entry — and overflow glyphs silently
-// rasterize blank. 2048² (~4× the slots) covers realistic multi-weight UIs; a true fix
-// for unbounded text would page or evict the atlas.
+// the 1024² budget fast — each weight is a distinct entry — and overflow glyphs render
+// blank. 2048² (~4× the slots) covers realistic multi-weight UIs; on overflow getGlyph
+// warns ONCE (fail loud, never a mystery blank). A true fix for unbounded text would page
+// or evict the atlas.
 const ATLAS_SIZE = 2048;
 const FLOATS_PER_GLYPH = 16; // [x,y,w,h][u0,v0,u1,v1][r,g,b,a][clip]
 const GLYPH_STRIDE = FLOATS_PER_GLYPH * 4;
@@ -644,6 +645,7 @@ export class Painter {
   private packX = 1;
   private packY = 1;
   private packRowH = 0;
+  private warnedAtlasFull = false; // fail-loud guard: warn once when the atlas overflows
   private glyphScratch = new Float32Array(0);
   private pendingBuffers: GPUBuffer[] = []; // transient per-pass buffers, freed after submit
 
@@ -1007,8 +1009,20 @@ export class Painter {
       this.packY += this.packRowH + 1;
       this.packRowH = 0;
     }
-    if (this.packY + ah > ATLAS_SIZE || char === " " || advance <= 0) {
-      // atlas full or whitespace: cache an empty entry (advance only)
+    const atlasFull = this.packY + ah > ATLAS_SIZE;
+    if (atlasFull && !this.warnedAtlasFull) {
+      // FAIL LOUD (once): the cardinal sin is a silent blank box. A full atlas means subsequent
+      // glyphs render invisible (advance-only) — surface it so it's debuggable, not mysterious.
+      this.warnedAtlasFull = true;
+      console.warn(
+        `[kussetsu] glyph atlas (${ATLAS_SIZE}×${ATLAS_SIZE}) is full — further glyphs will render BLANK. ` +
+          `Likely too many distinct (font-weight, font-size) combinations or a very large character set ` +
+          `(e.g. CJK). Reduce weight/size variety; a paging/eviction atlas is tracked as future work.`,
+      );
+    }
+    if (atlasFull || char === " " || advance <= 0) {
+      // atlas full, whitespace, or zero-width: cache an empty entry (advance only). The atlas-full
+      // case has already warned above; whitespace/zero-width are intentionally blank.
       const e: GlyphEntry = { u0: 0, v0: 0, u1: 0, v1: 0, cellW, cellH, advance };
       this.glyphCache.set(key, e);
       return e;
