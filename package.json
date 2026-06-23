@@ -1,6 +1,6 @@
 {
   "name": "kussetsu",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "R3F for 2D UI — React-authored interface painted entirely on the GPU (WebGPU/WGSL), with the DOM as an invisible accessibility + input layer.",
   "type": "module",
   "main": "./dist/index.js",
