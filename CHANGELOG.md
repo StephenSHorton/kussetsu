@@ -7,6 +7,14 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`border` / `borderColor` Style fields** — a hairline/outline stroke on the box edge that
+  follows the `radius` / `cornerSmoothing` corners and works with or without a `background`
+  (a default faint hairline if no color; a sub-pixel width still paints a crisp ~1px line).
+  Packed into the rect pipeline's spare instance slot (no extra draw, no stride growth).
+  The CSS/Tailwind compat layer doesn't auto-map `border` yet (use the native field); and
+  `box-shadow` / group `opacity` remain future work (separate shadow pass / offscreen
+  subtree compositing).
+
 - **`debug` option** (`createGpuRoot` / `<GpuCanvas>`) — an opt-in corner perf overlay showing
   fps · frame-ms · draw counts (rect / glass / material / particle). A single opaque canvas
   otherwise hides DevTools' element + perf panels.

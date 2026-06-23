@@ -133,7 +133,9 @@ Nodes take `onActivate(e)` (click / Enter / Space — `e` carries the `button` +
 and `gap` has `rowGap` / `columnGap`. Sizes (`width` / `height` / `minWidth` / `maxWidth` /
 `minHeight` / `maxHeight` / `basis`) take **px** (`200`) or a **percentage of the parent**
 (`"50%"`); `width` also takes `"stretch"` to fill the parent's *cross* axis (not `width:100%`
-— for a proportional main-axis size use `grow` / `basis`).
+— for a proportional main-axis size use `grow` / `basis`). For a box edge, `border` (px width)
++ `borderColor` (RGBA) draw a hairline/outline that follows the `radius` / `cornerSmoothing`
+corners and works with or without a `background`.
 
 The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, ty?, scale? })`
 / `resetCamera()` to drive pan-zoom, `hitTest(x, y)` (the node id at a canvas point),

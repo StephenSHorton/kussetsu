@@ -11,6 +11,8 @@ import type { GlassParams } from "./glassTuning";
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];
 const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
 const SELECTION_COLOR: RGBA = [0.3, 0.46, 0.96, 0.4];
+const TRANSPARENT: RGBA = [0, 0, 0, 0];
+const DEFAULT_BORDER: RGBA = [1, 1, 1, 0.22]; // a faint light hairline when `border` is set without a color
 const CARET_COLOR: RGBA = [0.96, 0.98, 1, 1];
 
 export interface Selection {
@@ -50,8 +52,11 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
     if (focusedId != null && n.id === focusedId) {
       out.push({ x: x - 4, y: y - 4, w: w + 8, h: h + 8, radius: ((s.radius ?? 0) + 4) * cam.scale, color: FOCUS_RING, clip });
     }
-    if (s.background && !n.props.glass && !n.props.material) {
-      out.push({ x, y, w, h, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing, color: s.background, clip });
+    if ((s.background || s.border) && !n.props.glass && !n.props.material) {
+      out.push({
+        x, y, w, h, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing, color: s.background ?? TRANSPARENT,
+        borderWidth: (s.border ?? 0) * cam.scale, borderColor: s.border ? (s.borderColor ?? DEFAULT_BORDER) : undefined, clip,
+      });
     }
     if (n.props.glass || n.props.material) return; // their children render in the FOREGROUND pass
     let childClip = clip;
@@ -111,7 +116,7 @@ export function collectForeground(root: ElementNode, cam: Camera, scroll: Scroll
     const s = n.props.style ?? {};
     const x = n.x * cam.scale + cam.tx;
     const y = (n.y - sy) * cam.scale + cam.ty;
-    if (s.background) rects.push({ x, y, w: n.w * cam.scale, h: n.h * cam.scale, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing, color: s.background });
+    if (s.background || s.border) rects.push({ x, y, w: n.w * cam.scale, h: n.h * cam.scale, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing, color: s.background ?? TRANSPARENT, borderWidth: (s.border ?? 0) * cam.scale, borderColor: s.border ? (s.borderColor ?? DEFAULT_BORDER) : undefined });
     if (n.type === "text") {
       const size = (s.fontSize ?? 16) * cam.scale;
       const weight = s.fontWeight ?? 400;

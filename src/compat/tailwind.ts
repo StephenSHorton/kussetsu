@@ -105,7 +105,7 @@ const EXACT: Record<string, [string, string][] | "ignore"> = {
   "overflow-visible": [["overflow", "visible"]],
   rounded: [["border-radius", "4px"]],
   "rounded-full": [["border-radius", "9999px"]],
-  border: [["border", "1px solid"]], // → fails (no stroke)
+  border: [["border", "1px solid"]], // → fails (compat doesn't map border yet; use the native border field)
   italic: [["font-style", "italic"]],
   underline: [["text-decoration", "underline"]],
   "line-through": [["text-decoration", "line-through"]],
@@ -179,7 +179,7 @@ export function tailwindToken(token: string): TwResult {
     if (COLORS[s]) return { decls: [["color", COLORS[s]]] };
     return { error: `${P} unknown text utility '${t}' (size or color). Use text-[15px] / text-[#fff] for arbitrary values.` };
   }
-  if (t.startsWith("border-")) return { error: `${P} border-* has no GPU target yet (no stroke primitive). ('${t}')` };
+  if (t.startsWith("border-")) return { error: `${P} border-* isn't auto-mapped by compat yet — set the native \`border\` (px) + \`borderColor\` Style field directly. ('${t}')` };
 
   // Prefixed numeric / keyword families.
   const dash = t.lastIndexOf("-");
@@ -224,7 +224,7 @@ export function tailwindToken(token: string): TwResult {
     case "rotate": case "scale": case "translate": case "skew": return { error: `${P} ${head}-* (transform) has no GPU target yet. ('${t}')` };
     case "overflow-x": case "overflow-y": return { error: `${P} ${head} has no target — overflow clips both axes. ('${t}')` };
     case "grid-cols": case "col-span": case "row-span": return { error: `${P} grid utilities have no target (no grid layout). ('${t}')` };
-    case "border": return { error: `${P} border-* has no GPU target yet (no stroke primitive). ('${t}')` };
+    case "border": return { error: `${P} border-* isn't auto-mapped by compat yet — set the native \`border\` (px) + \`borderColor\` Style field directly. ('${t}')` };
   }
 
   if (t === "uppercase" || t === "lowercase" || t === "capitalize")
