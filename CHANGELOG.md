@@ -5,6 +5,16 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **compat: inline `letter-spacing` now maps** to the real `letterSpacing` Style field (the
+  painter applies it as per-glyph tracking) instead of failing loud with a false "no target".
+  The em-relative Tailwind `tracking-*` still refuses, but now points to the working field
+  rather than claiming there's no target. (#2)
+- **Glass `refraction` default unified to `0.09`** — `GLASS_DEFAULTS` disagreed with the
+  documented per-node `GlassSpec` default and the `collectGlass` fallback (`0.1` vs `0.09`), so
+  enabling the global tuning / a default `setGlassOverride` subtly shifted the look. (#2)
+
 ## [0.3.0] — 2026-06-22
 
 Migrate the custom renderer from React 18 to **React 19**. The whole React-18 coupling lived
