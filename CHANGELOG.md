@@ -7,6 +7,15 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **Export `ShadowSpec`** — the type of `Style.boxShadow` is now nameable by consumers (was
+  usable inline but not importable).
+- **Broader consumer type-test coverage** (`test/types/consumer.tsx`) — now also guards the new
+  box-model fields (`boxShadow`, `opacity`), the full `GpuRoot` method surface (`frame`,
+  `requestRender`, `resetCamera`, `resize`, `getCanvas`), the full `GpuRootOptions` bag
+  (`pageScroll` / `background` / `onDeviceRestored`), and locks the public types `ShadowSpec` /
+  `GlassSpec` / `Size` / `SpringConfig` / `TextProps` / `GpuControls` / `GpuRootOptions`, plus
+  negative guards for `opacity`/`boxShadow` misuse. (Road to 1.0 — Pillar 4, non-freeze)
+
 - **Automatic device-loss recovery.** When the WebGPU device is lost (GPU crash/reset, sleep/wake,
   TDR) the renderer now re-acquires a device and rebuilds all GPU resources (pipelines, glyph atlas,
   buffers, textures) **in place** and repaints — the React tree is untouched, so no reload and no
