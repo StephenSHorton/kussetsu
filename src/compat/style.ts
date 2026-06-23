@@ -9,7 +9,7 @@
 //
 // Corrections that came out of adversarially verifying the map against the source:
 //   - display:flex must emit direction:'row' (CSS flex defaults row; kussetsu defaults column)
-//   - margin (any side) is NOT wired in Yoga → refuse, never no-op
+//   - margin (all/shorthand/per-side/inline/block) maps to the native margin fields (Yoga setMargin)
 //   - per-side / asymmetric padding has no target → refuse unless it collapses to one number
 //   - overflow clips BOTH axes & scrolls vertical-only → overflow-x/y can't be honored → refuse
 //   - width:100% → 'stretch' fills the CROSS axis only (correct in column containers)
@@ -171,9 +171,29 @@ export function mapCssDeclarations(decls: Array<[string, string | number | null]
     }
   }
 
-  // ── margin: completely unwired in Yoga → must be loud, never a no-op ─────────
-  for (const k of ["margin", "margin-top", "margin-right", "margin-bottom", "margin-left", "margin-inline", "margin-block"])
-    if (has(k)) fail(k, `${P} ${k} is not wired to layout yet — convert vertical rhythm to a parent gap, or it needs a margin layout feature.`);
+  // ── margin (maps to the native margin fields; Yoga applies them via setMargin) ──
+  {
+    if (has("margin")) {
+      const parts = String(get("margin")).trim().split(/\s+/).map((p) => parseLength(p));
+      if (parts.some((p) => p == null)) fail("margin", `${P} margin values must be px/rem lengths ('auto' isn't wired — center with a parent's justify/align).`);
+      else if (parts.length === 1) style.margin = parts[0] as number;
+      else if (parts.length === 2) { style.marginY = parts[0] as number; style.marginX = parts[1] as number; } // CSS "v h"
+      else if (parts.length === 4) { [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft] = parts as number[]; } // "t r b l"
+      else fail("margin", `${P} margin shorthand '${get("margin")}' must be 1, 2, or 4 lengths.`);
+    }
+    const side = (cssKey: string, styleKey: "marginTop" | "marginRight" | "marginBottom" | "marginLeft" | "marginX" | "marginY") => {
+      if (!has(cssKey)) return;
+      const v = parseLength(get(cssKey) as never);
+      if (v == null) fail(cssKey, `${P} ${cssKey} must be a px/rem length.`);
+      else style[styleKey] = v;
+    };
+    side("margin-top", "marginTop");
+    side("margin-right", "marginRight");
+    side("margin-bottom", "marginBottom");
+    side("margin-left", "marginLeft");
+    side("margin-inline", "marginX"); // logical → physical X (LTR)
+    side("margin-block", "marginY"); // logical → physical Y
+  }
 
   // ── position / offsets ──────────────────────────────────────────────────────
   if (has("position")) {

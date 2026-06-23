@@ -128,8 +128,9 @@ with inertia. The canvas sets `touch-action: none` so Kussetsu owns the gesture 
 Nodes take `onActivate(e)` (click / Enter / Space — `e` carries the `button` + `metaKey` /
 `shiftKey` / … modifiers), `onPointerEnter` / `onPointerLeave` (hover), `onDrag`, and
 `editable` + `value` + `onChange` for text fields. A node with any of these is interactive
-(its box captures pointer events). For layout, `padding` has per-side variants
-(`paddingX` / `paddingY` / `paddingTop` / `paddingRight` / `paddingBottom` / `paddingLeft`)
+(its box captures pointer events). For layout, `padding` and `margin` both have per-side
+variants (`paddingX`/`paddingY`/`paddingTop`/`…`/`paddingLeft`, and `marginX`/`marginY`/
+`marginTop`/`…`/`marginLeft` — `margin` is space *outside* the box, flowing siblings apart)
 and `gap` has `rowGap` / `columnGap`. Sizes (`width` / `height` / `minWidth` / `maxWidth` /
 `minHeight` / `maxHeight` / `basis`) take **px** (`200`) or a **percentage of the parent**
 (`"50%"`); `width` also takes `"stretch"` to fill the parent's *cross* axis (not `width:100%`

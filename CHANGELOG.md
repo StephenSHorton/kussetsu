@@ -7,6 +7,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`margin` Style field** — space *outside* the box, with the same shape as `padding`:
+  `margin` (all sides), `marginX` / `marginY`, and per-side `marginTop` / `marginRight` /
+  `marginBottom` / `marginLeft` (Yoga `setMargin`, same All < axis < per-side specificity).
+  The `kussetsu/compat` layer now **maps** margin too (inline `margin` 1/2/4-value shorthand +
+  per-side + `margin-inline`/`block`, and Tailwind `m-*`/`mx`/`my`/`mt`/`…`) instead of
+  failing loud — closing the biggest remaining compat gap. (`margin: auto` is still unwired.)
+  (Road to 1.0 — Pillar 3, box-model)
 - **Unit tests for the pure layer** (`test/{color,text,layout,collect}.test.mjs`, ~240 assertions)
   — the GPU-free, correctness-critical core that previously had zero coverage and regressed
   silently: color parsing (`parseColor`/`rgba`), text geometry (`measureWidth`/`wrapText`/`hitTest`/

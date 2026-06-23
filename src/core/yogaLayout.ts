@@ -60,6 +60,14 @@ function applyStyle(yn: YogaNode, s: Style = {}): void {
   if (s.paddingRight != null) yn.setPadding(Edge.Right, s.paddingRight);
   if (s.paddingBottom != null) yn.setPadding(Edge.Bottom, s.paddingBottom);
   if (s.paddingLeft != null) yn.setPadding(Edge.Left, s.paddingLeft);
+  // Margin: same All < Horizontal/Vertical < per-side specificity (space OUTSIDE the box).
+  if (s.margin != null) yn.setMargin(Edge.All, s.margin);
+  if (s.marginX != null) yn.setMargin(Edge.Horizontal, s.marginX);
+  if (s.marginY != null) yn.setMargin(Edge.Vertical, s.marginY);
+  if (s.marginTop != null) yn.setMargin(Edge.Top, s.marginTop);
+  if (s.marginRight != null) yn.setMargin(Edge.Right, s.marginRight);
+  if (s.marginBottom != null) yn.setMargin(Edge.Bottom, s.marginBottom);
+  if (s.marginLeft != null) yn.setMargin(Edge.Left, s.marginLeft);
   // Gap: both axes, then per-axis override.
   if (s.gap != null) yn.setGap(Gutter.All, s.gap);
   if (s.rowGap != null) yn.setGap(Gutter.Row, s.rowGap);

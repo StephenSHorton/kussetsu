@@ -72,6 +72,43 @@ const VH = 800;
   rect("row gap child B pushed right by gap", b, 125, 0, 100, 40); // 100 + 25
 }
 
+// ── margin: space OUTSIDE the box (Yoga setMargin) ────────────────────────────────────
+// all-sides margin offsets the child within its parent's content box.
+{
+  const a = el("view", { style: { width: 100, height: 40, margin: 20 } });
+  const root = el("view", {}, a);
+  layoutWithYoga(root, VW, VH);
+  rect("margin: child offset by margin on top + left", a, 20, 20, 100, 40);
+}
+
+// marginTop pushes a child past its previous sibling (margin adds to the flow).
+{
+  const a = box(100, 40);
+  const b = el("view", { style: { width: 100, height: 40, marginTop: 30 } });
+  const root = el("view", {}, a, b);
+  layoutWithYoga(root, VW, VH);
+  rect("marginTop pushes B below A by A.h + marginTop", b, 0, 70, 100, 40); // 40 + 30
+}
+
+// marginX applies to BOTH horizontal sides (Edge.Horizontal): the next sibling clears the
+// right margin too.
+{
+  const a = el("view", { style: { width: 100, height: 40, marginX: 25 } });
+  const b = box(100, 40);
+  const root = el("view", { style: { direction: "row" } }, a, b);
+  layoutWithYoga(root, VW, VH);
+  rect("marginX: child shifted right by left margin", a, 25, 0, 100, 40);
+  rect("marginX: sibling clears child's right margin", b, 150, 0, 100, 40); // 25 + 100 + 25
+}
+
+// edge specificity: per-side margin overrides the all-sides margin on that edge.
+{
+  const a = el("view", { style: { width: 100, height: 40, margin: 10, marginTop: 40 } });
+  const root = el("view", {}, a);
+  layoutWithYoga(root, VW, VH);
+  rect("margin + marginTop: top from marginTop, left from margin", a, 10, 40, 100, 40);
+}
+
 // ── fixed width/height on a CHILD (root is always sized to the viewport by layoutWithYoga,
 //    which calls setWidth(vw)/setHeight(vh) after applyStyle — so a fixed child is the place
 //    to assert explicit px sizing flows through Yoga). ───────────────────────────────────

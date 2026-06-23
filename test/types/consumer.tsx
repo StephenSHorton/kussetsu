@@ -26,6 +26,9 @@ void mat;
 void bloom;
 // per-side padding + gap axes
 const card: Style = { paddingX: 16, paddingY: 8, paddingTop: 12, rowGap: 6, columnGap: 10, border: 1, borderColor: rgba("#ffffff", 0.2) };
+// margin (all / per-axis / per-side) — space outside the box
+const spaced: Style = { margin: 8, marginX: 12, marginY: 6, marginTop: 4, marginRight: 4, marginBottom: 4, marginLeft: 4 };
+void spaced;
 // percentage / proportional sizing
 const fluid: Style = { width: "50%", height: "100%", maxWidth: "80%", minHeight: "10%", basis: "33%", grow: 1 };
 const px: Style = { width: "stretch", height: 200 }; // px + "stretch" (cross-axis) still valid

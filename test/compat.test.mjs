@@ -41,6 +41,10 @@ const good = [
   ["p → paragraph", `<p className="text-sm">x</p>`, ["<text", `role="paragraph"`, "fontSize: 14"]],
   ["inline letter-spacing maps (real letterSpacing field)", `<div style={{ letterSpacing: 2 }}>x</div>`, ["letterSpacing: 2"]],
   ["letter-spacing px string maps", `<div style={{ letterSpacing: "-0.5px" }}>x</div>`, ["letterSpacing: -0.5"]],
+  ["tailwind m-4 → margin", `<div className="m-4" />`, ["margin: 16"]],
+  ["tailwind mx/my → marginX/Y", `<div className="mx-2 my-4" />`, ["marginX: 8", "marginY: 16"]],
+  ["inline marginTop", `<div style={{ marginTop: 8 }} />`, ["marginTop: 8"]],
+  ["inline margin shorthand 'v h'", `<div style={{ margin: "8px 16px" }} />`, ["marginY: 8", "marginX: 16"]],
 ];
 console.log("GOOD (transform + assert):");
 for (const [name, code, needles] of good) {
@@ -55,8 +59,6 @@ const bad = [
   ["img", `<img src="a.png" />`, "img has no GPU target"],
   ["inline box-shadow", `<div style={{ boxShadow: "0 1px 2px #000" }} />`, "box-shadow has no GPU target"],
   ["tailwind shadow-lg", `<div className="shadow-lg" />`, "shadow-"],
-  ["tailwind margin", `<div className="m-4" />`, "margin"],
-  ["inline margin", `<div style={{ marginTop: 8 }} />`, "margin-top is not wired"],
   ["dynamic inline value", `<div style={{ background: someColor }} />`, "dynamic value for 'background'"],
   ["dynamic className", `<div className={cn("p-2")} />`, "dynamic className"],
   ["hover variant", `<div className="hover:bg-slate-800" />`, "'hover:' variant"],

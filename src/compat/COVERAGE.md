@@ -31,6 +31,7 @@
 | `height` (px/rem) | `height` | no percent/auto-stretch height |
 | `min-width` / `max-width` | `minWidth` / `maxWidth` | |
 | `padding` (single / symmetric) | `padding` | |
+| `margin` / `margin-*` / `margin-inline`/`block` | `margin` / per-side / `marginX`/`marginY` | 1/2/4-value shorthand; `auto` → fails |
 | `position:absolute` + `top`/`left` | `absolute:{x,y}` | ⚠ parent-relative (like CSS); `right`/`bottom`/`inset` → fail |
 | `overflow:hidden\|scroll\|auto` | `overflow` | ⚠ clips **both** axes; scroll is **vertical-only** |
 | `background`/`background-color` (solid) | `background` (RGBA) | named/#hex/rgb()/rgba() |
@@ -44,7 +45,6 @@
 ### 🚫 Fails loud — a renderer/layout feature in disguise
 | CSS | why there's no target |
 |---|---|
-| `margin` (any side) | **not wired in Yoga at all** — convert vertical rhythm to a parent `gap` |
 | `padding-*` (per-side / asymmetric) | only a single all-sides padding is wired |
 | `min-height` / `max-height` / `aspect-ratio` | not wired to layout |
 | `flex-basis`, `order`, `align-content` | not wired |
@@ -86,12 +86,12 @@ strings, so textual children are auto-lifted into a `<text>` (`<div>Hi {name}</d
 ## Tailwind subset
 Supported families map to the CSS above and run through the **same** rules:
 `flex`/`inline-flex`/`flex-row`/`flex-col`/`items-*`/`justify-*`/`flex-wrap`/`grow`/`shrink`/`self-stretch` ·
-`p-{n}`/`gap-{n}` · `w-{n}`/`h-{n}`/`w-full`/`min-w-*`/`max-w-*` · `rounded*` ·
+`p-{n}`/`gap-{n}` · `m-{n}`/`mx-`/`my-`/`mt-`/`mr-`/`mb-`/`ml-` (margin) · `w-{n}`/`h-{n}`/`w-full`/`min-w-*`/`max-w-*` · `rounded*` ·
 `bg-{color}`/`text-{color}` (curated palette + `bg-[#hex]`) · `text-{size}` ·
 `font-{weight}` (`font-sans` ignored) · `overflow-{hidden|auto|scroll}` ·
 `absolute`+`top-{n}`/`left-{n}` · arbitrary values `w-[37px]`, `p-[10px]`, `text-[#fff]`.
 
-Fail loud: `m-*`/`space-*` (margins) · `px-/py-` asymmetric · `gap-x-*`/`gap-y-*` (single-axis)
+Fail loud: `space-*` (sibling margins) · `px-/py-` asymmetric · `gap-x-*`/`gap-y-*` (single-axis)
 · `shadow-*` · `border-*`/`ring-*` · `bg-gradient-*` · `opacity-*` · `rotate-*`/`scale-*` ·
 `blur-*`/`backdrop-*` (use glass) · `transition-*`/`animate-*` · `grid*` · `sticky`/`fixed`/`z-*`
 · `leading-*` · `tracking-*` · `text-center`/`italic`/`underline`/`truncate`/`uppercase` ·
@@ -107,8 +107,8 @@ a resize hook for responsive, theme context for `dark:`).
 ## The honest migration ceiling
 For a typical Tailwind app, **~15–35% of components migrate clean** — and only specific
 kinds: presentational layout (`div`/`span`/`p`/`h*` + `button` + text fields) styled with
-the flex/padding/gap/size/color/radius/solid-bg subset. **What does not come:** anything
-with icons or images (near-universal blocker), margins/grid/responsive, shadows/borders/
+the flex/padding/margin/gap/size/color/radius/solid-bg subset. **What does not come:** anything
+with icons or images (near-universal blocker), grid/responsive, shadows/borders/
 gradients (cosmetic but pervasive — the result *looks* broken even when it "works"),
 hover/focus feedback, animations, portals/modals, and any third-party component that
 measures the DOM (Radix/Headless/MUI/Floating UI, charts, virtualized lists — a `ref` to a

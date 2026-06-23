@@ -17,6 +17,13 @@ export interface Style {
   paddingRight?: number;
   paddingBottom?: number;
   paddingLeft?: number;
+  margin?: number; // all four sides — space OUTSIDE the box (flows siblings apart)
+  marginX?: number; // left + right (overrides `margin` on the x axis)
+  marginY?: number; // top + bottom (overrides `margin` on the y axis)
+  marginTop?: number; // per-side (most specific — overrides margin / marginX-Y)
+  marginRight?: number;
+  marginBottom?: number;
+  marginLeft?: number;
   gap?: number; // both axes
   rowGap?: number; // between rows (overrides `gap` on the row axis)
   columnGap?: number; // between columns (overrides `gap` on the column axis)
