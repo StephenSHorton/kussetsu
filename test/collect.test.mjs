@@ -9,7 +9,7 @@
 //
 // Run: node test/collect.test.mjs   (Node >=23 strips TS types, resolves .ts imports)
 import { makeHarness, approx, approxArr, el, container, placed } from "./helpers.mjs";
-import { collectRects, collectShadows, collectTexts, collectSemantics, collectScrollRegions } from "../src/core/collect.ts";
+import { collectRects, collectShadows, collectOpacityGroups, collectTexts, collectSemantics, collectScrollRegions } from "../src/core/collect.ts";
 
 const { ok, done } = makeHarness();
 
@@ -317,6 +317,71 @@ const NOSCROLL = new Map();
 {
   const root = placed(el("view", { style: { overflow: "hidden" } }, placed(el("view", {}), 0, 0, 10, 10)), 0, 0, 100, 100);
   ok("overflow:hidden is not a scroll region", collectScrollRegions(root, ID, NOSCROLL).length === 0);
+}
+
+// ── collectOpacityGroups (group opacity → lifted offscreen batches) ────────────
+{
+  // a faded card (opacity 0.5) with a bg + text child, beside an opaque sibling
+  const t = placed(el("text", {}, "faded"), 5, 5, 40, 16);
+  const card = placed(el("view", { style: { opacity: 0.5, background: [1, 1, 1, 1] } }, t), 0, 0, 100, 50);
+  const sib = placed(el("view", { style: { background: [0, 1, 0, 1] } }), 0, 60, 100, 50);
+  const root = placed(el("view", {}, card, sib), 0, 0, 200, 200);
+
+  const groups = collectOpacityGroups(root, ID, NOSCROLL);
+  ok("opacity node forms one group at its opacity", groups.length === 1 && approx(groups[0].opacity, 0.5), `got ${groups.length}`);
+  ok("group lifts the card bg rect", groups[0].rects.some((r) => approxArr(r.color, [1, 1, 1, 1])), JSON.stringify(groups[0].rects.map((r) => r.color)));
+  ok("group lifts the card text", groups[0].texts.some((x) => x.text === "faded"));
+
+  // main paint passes EXCLUDE the faded subtree (it's lifted), keep the opaque sibling
+  const mainRects = collectRects(root, null, ID, NOSCROLL);
+  ok("main collectRects excludes the faded card bg", !mainRects.some((r) => approxArr(r.color, [1, 1, 1, 1])), JSON.stringify(mainRects.map((r) => r.color)));
+  ok("main collectRects keeps the opaque sibling", mainRects.some((r) => approxArr(r.color, [0, 1, 0, 1])));
+  ok("main collectTexts excludes the faded text", !collectTexts(root, ID, NOSCROLL).some((x) => x.text === "faded"));
+}
+// semantics does NOT skip opacity — a faded-but-visible button stays interactive
+{
+  const btn = placed(el("view", { role: "button", style: { opacity: 0.4, background: [1, 1, 0, 1] } }, placed(el("text", {}, "Go"), 0, 0, 16, 16)), 0, 0, 30, 30);
+  const root = placed(el("view", {}, btn), 0, 0, 100, 100);
+  ok("faded button still emits a SemNode", collectSemantics(root, ID, NOSCROLL).some((s) => s.label === "Go"));
+  ok("faded button bg excluded from main rects (lifted)", !collectRects(root, null, ID, NOSCROLL).some((r) => approxArr(r.color, [1, 1, 0, 1])));
+  ok("faded button bg lifted into a group", collectOpacityGroups(root, ID, NOSCROLL).some((g) => g.rects.some((r) => approxArr(r.color, [1, 1, 0, 1]))));
+}
+// opacity >= 1 / undefined is not a group
+{
+  const a = placed(el("view", { style: { opacity: 1, background: [1, 0, 0, 1] } }), 0, 0, 10, 10);
+  const b = placed(el("view", { style: { background: [0, 0, 1, 1] } }), 0, 20, 10, 10);
+  const root = placed(el("view", {}, a, b), 0, 0, 100, 100);
+  ok("opacity:1 is not a group", collectOpacityGroups(root, ID, NOSCROLL).length === 0);
+  ok("opacity:1 + plain content stay in main rects", collectRects(root, null, ID, NOSCROLL).length === 2);
+}
+// nested opacity → two independent groups; the outer lift EXCLUDES the inner subtree
+{
+  const innerBg = [0, 0, 1, 1];
+  const outerBg = [1, 0, 0, 1];
+  const inner = placed(el("view", { style: { opacity: 0.8, background: innerBg } }), 10, 10, 20, 20);
+  const outer = placed(el("view", { style: { opacity: 0.5, background: outerBg } }, inner), 0, 0, 80, 80);
+  const root = placed(el("view", {}, outer), 0, 0, 200, 200);
+  const groups = collectOpacityGroups(root, ID, NOSCROLL);
+  ok("nested opacity → 2 groups", groups.length === 2, `got ${groups.length}`);
+  const outerG = groups.find((g) => approx(g.opacity, 0.5));
+  const innerG = groups.find((g) => approx(g.opacity, 0.8));
+  ok("outer group excludes the inner (nested) bg", outerG && outerG.rects.some((r) => approxArr(r.color, outerBg)) && !outerG.rects.some((r) => approxArr(r.color, innerBg)), JSON.stringify(outerG && outerG.rects.map((r) => r.color)));
+  ok("inner group carries the inner bg at its own opacity", innerG && innerG.rects.some((r) => approxArr(r.color, innerBg)));
+}
+// camera applies to lifted group content
+{
+  const card = placed(el("view", { style: { opacity: 0.5, background: [1, 1, 1, 1] } }), 10, 10, 40, 40);
+  const root = placed(el("view", {}, card), 0, 0, 200, 200);
+  const g = collectOpacityGroups(root, CAM, NOSCROLL)[0]; // scale 2, tx 10, ty 20
+  const r = g.rects.find((x) => approxArr(x.color, [1, 1, 1, 1]));
+  ok("lifted group rect is camera-transformed", r && approx(r.x, 30) && approx(r.y, 40) && approx(r.w, 80) && approx(r.h, 80), JSON.stringify(r));
+}
+// a hidden opacity group contributes nothing (hidden beats opacity)
+{
+  const card = placed(el("view", { style: { opacity: 0.5, background: [1, 1, 1, 1] } }), 0, 0, 40, 40);
+  card.hidden = true;
+  const root = placed(el("view", {}, card), 0, 0, 100, 100);
+  ok("hidden opacity group excluded from collectOpacityGroups", collectOpacityGroups(root, ID, NOSCROLL).length === 0);
 }
 
 process.exit(done("collect"));

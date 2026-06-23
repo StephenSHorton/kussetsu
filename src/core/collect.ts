@@ -3,10 +3,18 @@
 // Pre-order = parents before children (paint order) and reading order (AT).
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene.ts";
 import type { ParticleSpec } from "./particles";
-import type { ClipRect, GlassPanel, MaterialPanel, Rect, ShadowItem, TextItem } from "./webgpu";
+import type { ClipRect, GlassPanel, MaterialPanel, OpacityGroup, Rect, ShadowItem, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { measureWidth, selectionRects } from "./text.ts";
 import type { GlassParams } from "./glassTuning";
+
+/** The group opacity of a node if it forms a fade group (style.opacity in [0,1)), else null.
+ *  Paint passes (rects/texts) skip these subtrees — they're lifted by collectOpacityGroups and
+ *  composited offscreen — but interaction/semantics passes ignore opacity (faded ≠ inert). */
+const opacityOf = (n: ElementNode): number | null => {
+  const o = n.props.style?.opacity;
+  return o != null && o < 1 ? Math.max(0, o) : null;
+};
 
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];
 const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
@@ -42,7 +50,7 @@ function intersect(a: ClipRect, b: ClipRect): ClipRect {
   return [x0, y0, Math.max(0, x1 - x0), Math.max(0, y1 - y0)];
 }
 
-export function collectRects(root: ElementNode, focusedId: number | null, cam: Camera, scroll: ScrollMap): Rect[] {
+export function collectRects(root: ElementNode, focusedId: number | null, cam: Camera, scroll: ScrollMap, baseClip?: ClipRect, baseSy = 0): Rect[] {
   const out: Rect[] = [];
   const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
     const s = n.props.style ?? {};
@@ -67,9 +75,10 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
       childClip = clip ? intersect(clip, own) : own;
       if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
     }
-    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
+    // skip opacity-group subtrees — they're lifted + composited offscreen (collectOpacityGroups)
+    for (const c of n.children) if (c.kind === "element" && !c.hidden && opacityOf(c) == null) walk(c, childClip, childSy);
   };
-  walk(root, undefined, 0);
+  walk(root, baseClip, baseSy);
   return out;
 }
 
@@ -110,7 +119,7 @@ export function collectShadows(root: ElementNode, cam: Camera, scroll: ScrollMap
   return out;
 }
 
-export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap): TextItem[] {
+export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap, baseClip?: ClipRect, baseSy = 0): TextItem[] {
   const out: TextItem[] = [];
   const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
     const s = n.props.style ?? {};
@@ -138,7 +147,40 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
       childClip = clip ? intersect(clip, own) : own;
       if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
     }
-    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
+    // skip opacity-group subtrees — lifted + composited offscreen (collectOpacityGroups)
+    for (const c of n.children) if (c.kind === "element" && !c.hidden && opacityOf(c) == null) walk(c, childClip, childSy);
+  };
+  walk(root, baseClip, baseSy);
+  return out;
+}
+
+/** Find every group-opacity node (style.opacity < 1) and lift its subtree's rects + texts into a
+ *  batch to be rendered offscreen + composited at that opacity (collectRects/collectTexts skip these
+ *  subtrees in the main pass). Each opacity node is its own group at its own opacity — nested opacity
+ *  composites independently (not multiplied) and glass/material inside a group render unfaded; both
+ *  are documented v1 limitations. The find-walk tracks clip/scroll so a faded subtree inside an
+ *  overflow region lifts at the right offset. */
+export function collectOpacityGroups(root: ElementNode, cam: Camera, scroll: ScrollMap): OpacityGroup[] {
+  const out: OpacityGroup[] = [];
+  const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
+    if (n.props.glass || n.props.material) return; // not lifted (foreground); opacity inside glass is unfaded
+    const s = n.props.style ?? {};
+    let childClip = clip;
+    let childSy = sy;
+    if (s.overflow) {
+      const own: ClipRect = [n.x * cam.scale + cam.tx, (n.y - sy) * cam.scale + cam.ty, n.w * cam.scale, n.h * cam.scale];
+      childClip = clip ? intersect(clip, own) : own;
+      if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
+    }
+    for (const c of n.children) {
+      if (c.kind !== "element" || c.hidden) continue;
+      const op = opacityOf(c);
+      if (op != null) {
+        // lift c's subtree at the inherited clip/scroll (collectRects/collectTexts exclude nested groups)
+        out.push({ opacity: op, rects: collectRects(c, null, cam, scroll, childClip, childSy), texts: collectTexts(c, cam, scroll, childClip, childSy) });
+      }
+      walk(c, childClip, childSy); // keep descending — to find any NESTED opacity groups
+    }
   };
   walk(root, undefined, 0);
   return out;
