@@ -73,8 +73,10 @@ export interface ShadowSpec {
   color?: RGBA; // default a soft black, [0, 0, 0, 0.25]
 }
 
-// A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop),
-// not as a flat background rect.
+// A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop). Its `style.background`
+// is over-composited on top of the refraction AT ITS ALPHA — so a near-opaque background makes the glass
+// OCCLUDE its backdrop (a frosted *and* opaque modal), while no/transparent background is pure glass.
+// (This is distinct from the glass `tint`, which is a subtle hue wash of the material.)
 export interface GlassSpec {
   refraction?: number; // default 0.09 — fraction of panel size the rim bends
   blur?: number; // default 0 — backdrop blur radius, CSS px
