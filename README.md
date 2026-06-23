@@ -144,6 +144,13 @@ no blur pass (CSS `box-shadow`, outer only). `opacity` (0..1) fades a node **and
 as one group** — composited offscreen, so overlapping children don't double-darken (true CSS group
 opacity, not a per-node alpha).
 
+Draw an **image** with `<Image src="…" />` (or the `image={{ src, fit }}` prop on any `<View>`).
+Sources can be URLs, data URIs, or **SVG** (CORS-enabled remote images work); each `src` loads once,
+async, then repaints. `fit` is `cover` (default — fill + crop), `contain` (whole image, letterboxed),
+or `fill` (stretch). The image is clipped to the box's `radius` — `radius = ½ size` makes a circular
+avatar. (Today an image paints above its box's own fill/text — ideal for icons/avatars/photos/logos;
+a full-bleed image *behind* its own text awaits the z-index/stacking work.)
+
 The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, ty?, scale? })`
 / `resetCamera()` to drive pan-zoom, `hitTest(x, y)` (the node id at a canvas point),
 `resize()`, and `getCanvas()`.

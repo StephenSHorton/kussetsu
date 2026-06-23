@@ -5,6 +5,21 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Image / icon / texture drawing** — a node can now render an image: `<Image src="…" />` (sugar) or
+  `<View image={{ src, fit }} />` (the `image` prop on any node). Sources are URLs, data URIs, blob URLs,
+  or **SVG** (loaded via an `<img>` so SVG decodes; CORS-enabled remote images work). Each `src` is fetched
+  once, uploaded to a premultiplied GPU texture, and cached; loads are async and trigger a repaint when
+  ready. `fit` controls how the image fills the box: **`cover`** (default — fill + crop), **`contain`**
+  (whole image, letterboxed), **`fill`** (stretch). The image is clipped to the box's `radius`
+  (so `radius = ½ size` gives a circular avatar), respects `cornerSmoothing`, the camera (pan/zoom),
+  scroll, and overflow clip. Drawn over solid rects/text and under glass. New exports: `Image`,
+  `ImageProps`, `ImageSpec`. (Road to 1.0 — Pillar 3, feature win)
+  - v1 limitations (documented): an image paints *above* the box's own fill/text (great for icons,
+    avatars, photos, logos; a full-bleed image *behind* its own text is a stacking concern for the
+    upcoming z-index work); images inside a group-`opacity` subtree don't fade with it (like glass/material).
+
 ## [0.4.0] — 2026-06-23
 
 The road-to-1.0 hardening release (pre-freeze): the box-model trio (`margin` / `boxShadow` /

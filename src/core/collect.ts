@@ -3,7 +3,7 @@
 // Pre-order = parents before children (paint order) and reading order (AT).
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene.ts";
 import type { ParticleSpec } from "./particles";
-import type { ClipRect, GlassPanel, MaterialPanel, OpacityGroup, Rect, ShadowItem, TextItem } from "./webgpu";
+import type { ClipRect, GlassPanel, ImageItem, MaterialPanel, OpacityGroup, Rect, ShadowItem, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { measureWidth, selectionRects } from "./text.ts";
 import type { GlassParams } from "./glassTuning";
@@ -79,6 +79,37 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
     for (const c of n.children) if (c.kind === "element" && !c.hidden && opacityOf(c) == null) walk(c, childClip, childSy);
   };
   walk(root, baseClip, baseSy);
+  return out;
+}
+
+/** Images (props.image) → flat list, camera + scroll + clip applied (screen px). The painter
+ *  loads/caches the texture per `src` and draws each as a clipped, rounded textured quad. Drawn
+ *  OVER PASS-1 rects/glyphs (so an icon/avatar sits on its card), still under glass. */
+export function collectImages(root: ElementNode, cam: Camera, scroll: ScrollMap): ImageItem[] {
+  const out: ImageItem[] = [];
+  const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
+    const s = n.props.style ?? {};
+    const x = n.x * cam.scale + cam.tx;
+    const y = (n.y - sy) * cam.scale + cam.ty;
+    const w = n.w * cam.scale;
+    const h = n.h * cam.scale;
+    const img = n.props.image;
+    if (img?.src) {
+      out.push({ x, y, w, h, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing ?? 0, src: img.src, fit: img.fit ?? "cover", clip });
+    }
+    let childClip = clip;
+    let childSy = sy;
+    if (s.overflow) {
+      const own: ClipRect = [x, y, w, h];
+      childClip = clip ? intersect(clip, own) : own;
+      if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
+    }
+    // NB: unlike collectRects, keep descending into glass/material subtrees — images render on the
+    // backdrop (PASS 1.9), so an image inside a glass node is refracted UNDER that glass (intentional,
+    // matches the documented material/opacity-in-glass limits). Most images are leaves anyway.
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
+  };
+  walk(root, undefined, 0);
   return out;
 }
 

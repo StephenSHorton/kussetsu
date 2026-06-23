@@ -1,6 +1,13 @@
 import { useState } from "react";
-import { Text, View } from "../core";
+import { Image, Text, View } from "../core";
 import type { RGBA } from "../core/scene";
+
+// A 2:1 (240×120) data-URI image so cover/contain/fill are visually distinct in a square box.
+const DEMO_IMG =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' width='240' height='120'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#ff5c5c'/><stop offset='1' stop-color='#5c5cff'/></linearGradient></defs><rect width='240' height='120' fill='url(#g)'/><circle cx='60' cy='60' r='42' fill='#ffffff' fill-opacity='0.85'/><rect x='150' y='28' width='62' height='62' rx='10' fill='#00ff95'/></svg>",
+  );
 
 const WHITE: RGBA = [0.96, 0.97, 1, 1];
 const MUTED: RGBA = [0.62, 0.68, 0.82, 1];
@@ -48,6 +55,15 @@ export function App() {
 
       {/* Reserves the editor area the absolute nodes + glass occupy. */}
       <View style={{ width: "stretch", height: 360 }} />
+
+      {/* GPU-textured images — the same 2:1 source at fit cover · contain (bg shows the letterbox) ·
+          fill, then a circular avatar (radius = half the box). Loaded once, cached, clipped on the GPU. */}
+      <View style={{ direction: "row", gap: 16, align: "center" }}>
+        <Image src={DEMO_IMG} fit="cover" style={{ width: 120, height: 120, radius: 16 }} />
+        <Image src={DEMO_IMG} fit="contain" style={{ width: 120, height: 120, radius: 16, background: [0.1, 0.12, 0.2, 1] }} />
+        <Image src={DEMO_IMG} fit="fill" style={{ width: 120, height: 120, radius: 16 }} />
+        <Image src={DEMO_IMG} fit="cover" style={{ width: 96, height: 96, radius: 48 }} />
+      </View>
 
       {/* Real flexbox (Yoga): a wrapping chip row. */}
       <View style={{ direction: "row", wrap: true, gap: 10, width: 640 }}>

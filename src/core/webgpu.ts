@@ -45,6 +45,30 @@ export interface ShadowItem {
   clip?: ClipRect;
 }
 
+// An image instance — box in SCREEN px (collectImages applies the camera). The painter loads +
+// caches the texture per `src`; `fit` controls how it fills the box; clipped to `radius` + `clip`.
+export interface ImageItem {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  radius: number; // corner radius (screen px)
+  smoothing: number; // 0 round … 1 squircle (style.cornerSmoothing)
+  src: string; // texture cache key
+  fit: "cover" | "contain" | "fill";
+  clip?: ClipRect;
+}
+
+interface ImageEntry {
+  tex: GPUTexture | null;
+  bindGroup: GPUBindGroup | null;
+  aspect: number;
+  loading: boolean;
+  failed: boolean; // a broken/non-CORS/decode-failed src: don't re-fetch every frame
+  tick: number; // last frame used (LRU)
+}
+const IMAGE_CACHE_MAX = 64; // evict least-recently-used image textures beyond this (bounds VRAM)
+
 export interface TextItem {
   x: number;
   y: number;
@@ -134,6 +158,66 @@ fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
   let cov = textureSample(atlas, samp, in.uv).a;
   let a = cov * in.color.a * clipAlpha(in.screenPos, in.clip);
   return vec4f(in.color.rgb * a, a);
+}
+`;
+
+// Image quad: a textured rounded rect. Instances are SCREEN px (collectImages applies the camera);
+// the texture is premultiplied (uploaded with premultipliedAlpha), so the fragment just scales it by
+// coverage (rounded-rect SDF) × clip × fit-mask. `fit` remaps the 0..1 quad UV using the image vs box
+// aspect: cover crops, contain letterboxes, fill stretches.
+const IMAGE_WGSL = /* wgsl */ `
+struct VP { size: vec2f };
+@group(0) @binding(0) var<uniform> vp: VP;
+@group(0) @binding(1) var samp: sampler;
+@group(0) @binding(2) var tex: texture_2d<f32>;
+struct VSOut {
+  @builtin(position) pos: vec4f,
+  @location(0) local: vec2f, @location(1) half: vec2f, @location(2) radius: f32, @location(3) smoothing: f32,
+  @location(4) screenPos: vec2f, @location(5) clip: vec4f, @location(6) q: vec2f, @location(7) imgAspect: f32, @location(8) fitMode: f32,
+};
+const QUAD = array<vec2f, 6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) clip: vec4f, @location(2) params: vec4f) -> VSOut {
+  let q = QUAD[vi];
+  let px = rect.xy + q*rect.zw;
+  let ndc = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
+  var o: VSOut;
+  o.pos = vec4f(ndc,0,1); o.local = (q-0.5)*rect.zw; o.half = rect.zw*0.5;
+  o.radius = min(params.x, min(o.half.x, o.half.y)); o.smoothing = params.y;
+  o.screenPos = px; o.clip = clip; o.q = q; o.imgAspect = params.z; o.fitMode = params.w;
+  return o;
+}
+fn sdSuperellipse(p: vec2f, b: vec2f, r: f32, n: f32) -> f32 {
+  let q = abs(p) - b + vec2f(r);
+  let m = max(q, vec2f(0.0));
+  return min(max(q.x, q.y), 0.0) + pow(pow(m.x, n) + pow(m.y, n), 1.0 / n) - r;
+}
+fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
+  if (clip.z <= 0.0) { return 1.0; }
+  let x1 = clip.x + clip.z; let y1 = clip.y + clip.w;
+  let ax = smoothstep(clip.x - 0.5, clip.x + 0.5, p.x) * (1.0 - smoothstep(x1 - 0.5, x1 + 0.5, p.x));
+  let ay = smoothstep(clip.y - 0.5, clip.y + 0.5, p.y) * (1.0 - smoothstep(y1 - 0.5, y1 + 0.5, p.y));
+  return ax * ay;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  let boxAspect = in.half.x / in.half.y; // w/h
+  var uv = in.q;          // fill (fitMode 0): stretch
+  var mask = 1.0;
+  var s = vec2f(1.0, 1.0);
+  if (in.fitMode > 0.5 && in.fitMode < 1.5) {          // cover — fill the box, crop overflow
+    if (in.imgAspect > boxAspect) { s.x = boxAspect / in.imgAspect; } else { s.y = in.imgAspect / boxAspect; }
+    uv = (in.q - 0.5) * s + 0.5;
+  } else if (in.fitMode >= 1.5) {                       // contain — whole image, letterbox the rest
+    if (in.imgAspect > boxAspect) { s.y = boxAspect / in.imgAspect; } else { s.x = in.imgAspect / boxAspect; }
+    uv = (in.q - 0.5) / s + 0.5;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { mask = 0.0; }
+  }
+  let n = 2.0 + in.smoothing * 3.0;
+  let d = sdSuperellipse(in.local, in.half, in.radius, n);
+  let aa = fwidth(d);
+  let shape = 1.0 - smoothstep(-aa, aa, d);
+  let col = textureSample(tex, samp, clamp(uv, vec2f(0.0), vec2f(1.0))); // premultiplied
+  let cov = shape * mask * clipAlpha(in.screenPos, in.clip);
+  return vec4f(col.rgb * cov, col.a * cov);
 }
 `;
 
@@ -610,6 +694,11 @@ export class Painter {
 
   private rectPipeline!: GPURenderPipeline;
   private shadowPipeline!: GPURenderPipeline;
+  private imagePipeline!: GPURenderPipeline;
+  // Image texture cache, one entry per `src`. `loading` guards single-fetch; `failed` stops a broken
+  // src from re-fetching every frame; `tick` is the last frame it was used (for LRU eviction).
+  private images = new Map<string, ImageEntry>();
+  private imageTick = 0; // bumped each drawImages; entry.tick records last use for LRU eviction
   private blitPipeline!: GPURenderPipeline;
   private alphaBlitPipeline!: GPURenderPipeline; // composite an offscreen subtree at a group opacity
   private opacityTex: GPUTexture | null = null; // reused full-screen scratch for group-opacity batches
@@ -661,6 +750,10 @@ export class Painter {
   /** Set by the runtime: called when a shader is newly flagged bad, so the (async) detection
    *  can trigger a repaint and the frame recovers instead of staying blank. */
   onInvalidate?: () => void;
+
+  /** Set by the runtime: called when an image finishes loading (async), so the frame repaints and
+   *  the now-ready texture is drawn instead of staying blank until the next unrelated repaint. */
+  onImageLoaded?: () => void;
 
   /** True once the GPUDevice is lost OR this Painter is destroyed. Frames become no-ops so a
    *  lost / unconfigured context never throws out of the render loop. */
@@ -755,6 +848,8 @@ export class Painter {
       this.context.configure({ device: this.device, format: this.format, alphaMode: "premultiplied" });
       // Drop every cache/handle tied to the dead device, then rebuild from scratch.
       this.glyphCache.clear();
+      for (const e of this.images.values()) e.tex?.destroy();
+      this.images.clear(); // images re-fetch on the next frame (drawImages re-kicks the loads)
       this.packX = 1;
       this.packY = 1;
       this.packRowH = 0;
@@ -827,6 +922,28 @@ export class Painter {
         ],
       },
       fragment: { module: shadowModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
+      primitive: { topology: "triangle-list" },
+    });
+
+    const imageModule = device.createShaderModule({ code: IMAGE_WGSL });
+    this.imagePipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: imageModule,
+        entryPoint: "vs",
+        buffers: [
+          {
+            arrayStride: 48, // [x,y,w,h] [clip x,y,w,h] [radius, smoothing, imgAspect, fitMode]
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x4" }, // rect (screen px)
+              { shaderLocation: 1, offset: 16, format: "float32x4" }, // clip
+              { shaderLocation: 2, offset: 32, format: "float32x4" }, // params
+            ],
+          },
+        ],
+      },
+      fragment: { module: imageModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
       primitive: { topology: "triangle-list" },
     });
 
@@ -1178,6 +1295,120 @@ export class Painter {
     return buf;
   }
 
+  // Kick off an async load for `src` (once per src). On success: upload a PREMULTIPLIED texture,
+  // build its bind group (vp + sampler + texture), record the aspect ratio (for `fit`), and repaint
+  // via onImageLoaded. A fetch/decode failure logs once and leaves the image undrawn.
+  private loadImage(src: string, entry: ImageEntry) {
+    entry.loading = true;
+    const dev = this.device; // snapshot: a device-loss → recover() swaps this.device mid-load
+    void (async () => {
+      try {
+        // Load via an <img> (not fetch+blob) so SVG sources decode too — createImageBitmap(blob)
+        // can't decode SVG, but an <img> rasterizes it. crossOrigin lets us texture CORS-enabled
+        // remote images (same-origin + data URIs are unaffected; non-CORS remotes fail → caught).
+        const el = new globalThis.Image();
+        el.crossOrigin = "anonymous";
+        el.src = src;
+        await el.decode();
+        const bitmap = await createImageBitmap(el, { premultiplyAlpha: "premultiply" });
+        // Bail if the device was lost/replaced or this cache entry was evicted/cleared while we
+        // awaited — otherwise we'd allocate a texture on the new device into a detached entry (leak).
+        if (this.lost || this.device !== dev || this.images.get(src) !== entry) {
+          bitmap.close();
+          entry.loading = false;
+          return;
+        }
+        const iw = bitmap.width;
+        const ih = bitmap.height; // capture BEFORE close() — a closed ImageBitmap reports 0×0
+        const tex = this.device.createTexture({
+          size: [iw, ih],
+          format: "rgba8unorm",
+          usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+        this.device.queue.copyExternalImageToTexture({ source: bitmap }, { texture: tex, premultipliedAlpha: true }, [iw, ih]);
+        bitmap.close();
+        entry.tex = tex;
+        entry.aspect = iw / Math.max(1, ih);
+        entry.bindGroup = this.device.createBindGroup({
+          layout: this.imagePipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }, { binding: 1, resource: this.sampler }, { binding: 2, resource: tex.createView() }],
+        });
+        entry.loading = false;
+        this.onImageLoaded?.(); // repaint now that the texture is ready
+      } catch (e) {
+        entry.loading = false;
+        entry.failed = true; // don't re-fetch a broken/non-CORS/undecodable src every frame
+        console.error(`[kussetsu] failed to load image: ${src}`, e instanceof Error ? e.message : e);
+      }
+    })();
+  }
+
+  // Draw images as textured rounded quads. Groups by src (one bind group / texture); kicks off loads
+  // for not-yet-cached srcs and draws only the ready ones this frame (the rest appear on the repaint
+  // that loadImage triggers). One shared instance buffer, one draw per texture (firstInstance offset).
+  private drawImages(pass: GPURenderPassEncoder, images: ImageItem[]) {
+    if (!images.length) return;
+    const groups = new Map<string, ImageItem[]>();
+    for (const img of images) {
+      let g = groups.get(img.src);
+      if (!g) groups.set(img.src, (g = []));
+      g.push(img);
+    }
+    const tick = ++this.imageTick;
+    const ready: { bindGroup: GPUBindGroup; aspect: number; items: ImageItem[] }[] = [];
+    let total = 0;
+    for (const [src, items] of groups) {
+      let entry = this.images.get(src);
+      if (!entry) this.images.set(src, (entry = { tex: null, bindGroup: null, aspect: 1, loading: false, failed: false, tick }));
+      entry.tick = tick; // mark used this frame (LRU)
+      if (!entry.bindGroup && !entry.loading && !entry.failed) this.loadImage(src, entry);
+      if (entry.bindGroup) {
+        ready.push({ bindGroup: entry.bindGroup, aspect: entry.aspect, items });
+        total += items.length;
+      }
+    }
+    this.evictImages(tick); // bound the cache: drop LRU textures for srcs not used this frame
+    if (!total) return;
+    const buf = this.device.createBuffer({ size: total * 48, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    const data = new Float32Array(total * 12);
+    let i = 0;
+    for (const { aspect, items } of ready) {
+      for (const img of items) {
+        const o = i++ * 12;
+        data[o] = img.x; data[o + 1] = img.y; data[o + 2] = img.w; data[o + 3] = img.h;
+        if (img.clip) { data[o + 4] = img.clip[0]; data[o + 5] = img.clip[1]; data[o + 6] = img.clip[2]; data[o + 7] = img.clip[3]; }
+        data[o + 8] = img.radius; data[o + 9] = img.smoothing; data[o + 10] = aspect;
+        data[o + 11] = img.fit === "cover" ? 1 : img.fit === "contain" ? 2 : 0;
+      }
+    }
+    this.device.queue.writeBuffer(buf, 0, data);
+    pass.setPipeline(this.imagePipeline);
+    pass.setVertexBuffer(0, buf);
+    let off = 0;
+    for (const { bindGroup, items } of ready) {
+      pass.setBindGroup(0, bindGroup);
+      pass.draw(6, items.length, 0, off);
+      off += items.length;
+    }
+    this.pendingBuffers.push(buf);
+  }
+
+  // Bound the image-texture cache: beyond IMAGE_CACHE_MAX, destroy the least-recently-used entries
+  // NOT used this frame, so swapping through many distinct srcs (a carousel, dynamic/cache-busted
+  // avatar URLs) doesn't leak one texture per URL. Entries used this frame (or mid-load) are kept;
+  // an evicted src simply re-loads (async) if it reappears.
+  private evictImages(currentTick: number) {
+    if (this.images.size <= IMAGE_CACHE_MAX) return;
+    const evictable = [...this.images.entries()].filter(([, e]) => e.tick !== currentTick && !e.loading).sort((a, b) => a[1].tick - b[1].tick);
+    let over = this.images.size - IMAGE_CACHE_MAX;
+    for (const [src, e] of evictable) {
+      if (over <= 0) break;
+      e.tex?.destroy();
+      this.images.delete(src);
+      over--;
+    }
+  }
+
   private uploadShadows(shadows: ShadowItem[]): GPUBuffer | null {
     if (!shadows.length) return null;
     const buf = this.device.createBuffer({ size: shadows.length * SHADOW_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -1314,16 +1545,16 @@ export class Painter {
   // Public frame entry: a no-op once the device is lost, and a synchronous GPU throw mid-frame
   // (device lost before the async device.lost handler fires) is caught and routed to
   // onDeviceError instead of escaping the render loop / rAF callback.
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[]) {
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[]) {
     if (this.lost) return;
     try {
-      this.frameImpl(rects, texts, glass, fg, materials, info, shadows, opacityGroups);
+      this.frameImpl(rects, texts, glass, fg, materials, info, shadows, opacityGroups, images);
     } catch (e) {
       this.handleFrameError(e);
     }
   }
 
-  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[]) {
+  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[]) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -1414,6 +1645,14 @@ export class Painter {
         cp.draw(3);
         cp.end();
       }
+    }
+
+    // PASS 1.9 — images (textured rounded quads) onto the backdrop, over PASS-1 rects/glyphs but
+    // still UNDER glass (so glass refracts them). Loads are async; only ready textures draw now.
+    if (images && images.length) {
+      const ip = encoder.beginRenderPass({ colorAttachments: [{ view: this.backdropView!, loadOp: "load", storeOp: "store" }] });
+      this.drawImages(ip, images);
+      ip.end();
     }
 
     // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass) -> finalView.
@@ -1536,6 +1775,8 @@ export class Painter {
     this.sceneTex?.destroy();
     this.opacityTex?.destroy();
     this.brightTex?.destroy();
+    for (const e of this.images.values()) e.tex?.destroy();
+    this.images.clear();
     for (const b of [this.vpBuffer, this.bgBuffer, this.bloomExtractU, this.bloomCompositeU, this.nodeBuffer]) b?.destroy();
     for (const b of this.glassBuffers) b.destroy();
     for (const b of this.materialBuffers) b.destroy();

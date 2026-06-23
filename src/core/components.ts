@@ -15,15 +15,22 @@
 //   <View glass={{ refraction: 0.1 }} style={{ padding: 28, background: rgba("#0b0e14") }}>
 //     <Text style={{ fontWeight: 800 }}>Hello, light.</Text>
 //   </View>
-import type { FC } from "react";
-import type { NodeProps } from "./scene";
+import { createElement, type FC } from "react";
+import type { ImageSpec, NodeProps } from "./scene";
 
 /** Props for `<View>` / `<Text>` — Kussetsu's node props (`style`, `glass`, `onActivate`, …). */
 export type ViewProps = NodeProps;
 export type TextProps = NodeProps;
+
+/** Props for `<Image>` — a `View` plus the image `src` (+ `fit`); see {@link ImageSpec}. */
+export type ImageProps = Omit<NodeProps, "image"> & { src: string; fit?: ImageSpec["fit"] };
 
 /** A box. The GPU-painted equivalent of a `<div>` — flex layout, glass, material, etc. */
 export const View = "view" as unknown as FC<ViewProps>;
 
 /** A string. Put your text content as children: `<Text>hello</Text>`. */
 export const Text = "text" as unknown as FC<TextProps>;
+
+/** An image (icon / avatar / photo / logo). Sugar for `<View image={{ src, fit }} />`; takes the
+ *  same `style` (so `radius` rounds it, `width`/`height` size it). */
+export const Image: FC<ImageProps> = ({ src, fit, ...rest }) => createElement("view", { ...rest, image: { src, fit } });

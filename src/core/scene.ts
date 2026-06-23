@@ -119,6 +119,16 @@ export interface MaterialSpec {
   animated?: boolean;
 }
 
+/** Draw an image inside a node's box (icons, avatars, photos, logos) — `<Image src="…" />` or
+ *  `<View image={{ src }} />`. Loaded once and cached per `src`; clipped to the box's `radius`. */
+export interface ImageSpec {
+  /** Image URL, data URI, or blob URL. Also the texture cache key. */
+  src: string;
+  /** How the image fills the box (default `"cover"`): `"cover"` fills + crops to the box aspect,
+   *  `"contain"` fits the whole image inside (letterboxed), `"fill"` stretches to the box. */
+  fit?: "cover" | "contain" | "fill";
+}
+
 /** A full-screen post effect applied only WITHIN a node's box — `<View postProcess="bloom" />`. */
 export type PostProcess = "bloom";
 
@@ -153,6 +163,8 @@ export interface NodeProps {
   material?: MaterialSpec;
   /** Emit an instanced, pointer-reactive particle field over this node's box. See {@link ParticleSpec}. */
   particles?: import("./particles").ParticleSpec;
+  /** Draw an image inside this node's box (clipped to `style.radius`). See {@link ImageSpec}. */
+  image?: ImageSpec;
   /** Apply a full-screen post effect, masked to this node's box. See {@link PostProcess}. */
   postProcess?: PostProcess;
   children?: ReactNode;
