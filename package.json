@@ -1,6 +1,6 @@
 {
   "name": "kussetsu",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "R3F for 2D UI — React-authored interface painted entirely on the GPU (WebGPU/WGSL), with the DOM as an invisible accessibility + input layer.",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,7 +21,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
-    "test": "node test/compat.test.mjs && npm run test:types",
+    "test": "node test/compat.test.mjs && node test/reconciler.test.mjs && npm run test:types",
     "test:types": "npm run build:lib && tsc --noEmit -p test/types/tsconfig.json",
     "prepublishOnly": "npm run build:lib"
   },
@@ -54,19 +54,19 @@
   },
   "homepage": "https://stephenshorton.github.io/kussetsu/",
   "peerDependencies": {
-    "react": "^18.2.0"
+    "react": "^19.2.0"
   },
   "dependencies": {
-    "react-reconciler": "^0.29.2",
+    "react-reconciler": "^0.33.0",
     "yoga-layout": "^3.2.1"
   },
   "devDependencies": {
     "@babel/core": "^8.0.1",
-    "@types/react": "^18.3.31",
+    "@types/react": "^19.2.0",
     "@types/react-reconciler": "^0.33.0",
     "@vitejs/plugin-react": "^6.0.2",
     "@webgpu/types": "^0.1.70",
-    "react": "^18.3.1",
+    "react": "^19.2.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   }
