@@ -529,6 +529,13 @@ export class Painter {
    *  can trigger a repaint and the frame recovers instead of staying blank. */
   onInvalidate?: () => void;
 
+  /** True once the GPUDevice is lost OR this Painter is destroyed. Frames become no-ops so a
+   *  lost / unconfigured context never throws out of the render loop. */
+  private lost = false;
+  /** Set by the runtime: called if a frame throws because the device was lost mid-frame (before
+   *  the async device.lost handler runs), so the runtime can stop the loop + notify the app. */
+  onDeviceError?: (info: { reason: string; message: string }) => void;
+
   // A full-screen background shader rendered INTO the backdrop (pass 0) so glass refracts it.
   private bgShader: string | null = null;
   private bgBuffer!: GPUBuffer;
@@ -560,7 +567,10 @@ export class Painter {
     if (!adapter) throw new Error("No GPUAdapter");
     const p = new Painter(canvas);
     p.device = await adapter.requestDevice();
-    p.device.lost.then((info) => console.error("WebGPU device lost:", info.reason, info.message));
+    p.device.lost.then((info) => {
+      p.lost = true; // stop painting on a dead device (the runtime also reacts via its own device.lost)
+      console.error("WebGPU device lost:", info.reason, info.message);
+    });
     p.device.addEventListener("uncapturederror", (e) => console.error("[webgpu uncaptured]", (e as GPUUncapturedErrorEvent).error.message));
     p.context = canvas.getContext("webgpu") as GPUCanvasContext;
     p.format = navigator.gpu.getPreferredCanvasFormat();
@@ -1034,7 +1044,19 @@ export class Painter {
     this.bgShader = shader;
   }
 
+  // Public frame entry: a no-op once the device is lost, and a synchronous GPU throw mid-frame
+  // (device lost before the async device.lost handler fires) is caught and routed to
+  // onDeviceError instead of escaping the render loop / rAF callback.
   frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo) {
+    if (this.lost) return;
+    try {
+      this.frameImpl(rects, texts, glass, fg, materials, info);
+    } catch (e) {
+      this.handleFrameError(e);
+    }
+  }
+
+  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -1145,6 +1167,15 @@ export class Painter {
   /** Draw the uploaded node graph under `cam`, plus screen-space labels + glass.
    *  Per frame this is one instanced draw for ALL nodes + N label draws + glass. */
   frameGraph(cam: { tx: number; ty: number; scale: number }, texts: TextItem[], glass: GlassPanel[]) {
+    if (this.lost) return;
+    try {
+      this.frameGraphImpl(cam, texts, glass);
+    } catch (e) {
+      this.handleFrameError(e);
+    }
+  }
+
+  private frameGraphImpl(cam: { tx: number; ty: number; scale: number }, texts: TextItem[], glass: GlassPanel[]) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -1170,5 +1201,46 @@ export class Painter {
     this.device.queue.submit([encoder.finish()]);
     for (const b of this.pendingBuffers) b.destroy();
     this.pendingBuffers.length = 0;
+  }
+
+  // A frame threw — almost always because the device was lost between the runtime's `stopped`
+  // check and a GPU call (getCurrentTexture on a lost/unconfigured context, writeBuffer, submit).
+  // Flip `lost` so further frames no-op, log it (don't swallow silently), and notify the runtime.
+  private handleFrameError(e: unknown) {
+    if (this.lost) return; // already handled (e.g. via the async device.lost)
+    this.lost = true;
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[gpu-renderer] frame aborted (device lost?):", message);
+    this.onDeviceError?.({ reason: "device-lost", message });
+  }
+
+  /** Release every GPU resource this Painter owns and destroy the device. MUST be called on
+   *  teardown: a fresh GPUDevice is requested per mount and React StrictMode mounts twice, so
+   *  without this each <GpuCanvas> mount leaks a device + the ~16MB glyph atlas + every texture,
+   *  buffer, and pipeline. Idempotent; safe to call after the device is already lost. */
+  destroy() {
+    this.lost = true; // any in-flight / subsequent frame becomes a no-op
+    // device.destroy() frees everything the device owns, but eagerly release the big resources
+    // (the atlas alone is ~16MB) and drop our references so caches/buffers can be GC'd.
+    this.atlasTex?.destroy();
+    this.backdropTex?.destroy();
+    this.backdropTex2?.destroy();
+    this.sceneTex?.destroy();
+    this.brightTex?.destroy();
+    for (const b of [this.vpBuffer, this.bgBuffer, this.bloomExtractU, this.bloomCompositeU, this.nodeBuffer]) b?.destroy();
+    for (const b of this.glassBuffers) b.destroy();
+    for (const b of this.materialBuffers) b.destroy();
+    for (const b of this.pendingBuffers) b.destroy();
+    this.glassBuffers.length = 0;
+    this.materialBuffers.length = 0;
+    this.pendingBuffers.length = 0;
+    this.glyphCache.clear();
+    this.materialPipelines.clear();
+    try {
+      this.context?.unconfigure(); // release the canvas swap-chain
+    } catch {
+      // context may already be invalid after a device loss — ignore
+    }
+    this.device?.destroy();
   }
 }

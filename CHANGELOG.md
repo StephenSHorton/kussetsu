@@ -5,6 +5,18 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- **GPU resources are released on teardown.** `createGpuRoot().destroy()` (and `<GpuCanvas>`
+  unmount) now calls a new `Painter.destroy()` that releases the `GPUDevice`, the ~16MB glyph
+  atlas, every texture/buffer, and clears the pipeline/glyph caches. Previously teardown freed
+  React/DOM but **nothing GPU-side**, so every mount→unmount cycle (every route change, and
+  React StrictMode's dev double-mount) leaked a whole device + atlas. (Road to 1.0 — robustness)
+- **A device lost mid-frame no longer throws out of the render loop.** `Painter.frame`/`frameGraph`
+  now no-op once the device is lost and catch a synchronous GPU throw (e.g. `getCurrentTexture`
+  on a lost/unconfigured context), routing it to the runtime so the loop stops and `onDeviceLost`
+  fires — instead of an unhandled exception escaping the `requestAnimationFrame` callback.
+
 ## [0.3.0] — 2026-06-22
 
 Migrate the custom renderer from React 18 to **React 19**. The whole React-18 coupling lived
