@@ -136,7 +136,9 @@ and `gap` has `rowGap` / `columnGap`. Sizes (`width` / `height` / `minWidth` / `
 (`"50%"`); `width` also takes `"stretch"` to fill the parent's *cross* axis (not `width:100%`
 — for a proportional main-axis size use `grow` / `basis`). For a box edge, `border` (px width)
 + `borderColor` (RGBA) draw a hairline/outline that follows the `radius` / `cornerSmoothing`
-corners and works with or without a `background`.
+corners and works with or without a `background`. `boxShadow` (`{ x?, y?, blur?, spread?, color? }`)
+paints a soft drop shadow behind the box — one analytic gaussian-blurred rounded rect on the GPU,
+no blur pass (CSS `box-shadow`, outer only).
 
 The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, ty?, scale? })`
 / `resetCamera()` to drive pan-zoom, `hitTest(x, y)` (the node id at a canvas point),

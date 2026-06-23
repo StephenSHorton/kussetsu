@@ -3,7 +3,7 @@
 // Pre-order = parents before children (paint order) and reading order (AT).
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene.ts";
 import type { ParticleSpec } from "./particles";
-import type { ClipRect, GlassPanel, MaterialPanel, Rect, TextItem } from "./webgpu";
+import type { ClipRect, GlassPanel, MaterialPanel, Rect, ShadowItem, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { measureWidth, selectionRects } from "./text.ts";
 import type { GlassParams } from "./glassTuning";
@@ -13,6 +13,7 @@ const GLASS_TINT: RGBA = [0.82, 0.87, 1, 1];
 const SELECTION_COLOR: RGBA = [0.3, 0.46, 0.96, 0.4];
 const TRANSPARENT: RGBA = [0, 0, 0, 0];
 const DEFAULT_BORDER: RGBA = [1, 1, 1, 0.22]; // a faint light hairline when `border` is set without a color
+const DEFAULT_SHADOW: RGBA = [0, 0, 0, 0.25]; // a soft black when boxShadow has no color
 const CARET_COLOR: RGBA = [0.96, 0.98, 1, 1];
 
 export interface Selection {
@@ -59,6 +60,43 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
       });
     }
     if (n.props.glass || n.props.material) return; // their children render in the FOREGROUND pass
+    let childClip = clip;
+    let childSy = sy;
+    if (s.overflow) {
+      const own: ClipRect = [x, y, w, h];
+      childClip = clip ? intersect(clip, own) : own;
+      if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
+    }
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
+  };
+  walk(root, undefined, 0);
+  return out;
+}
+
+/** Drop shadows (props.style.boxShadow) → flat list, camera + scroll + clip applied (screen px).
+ *  Drawn BEHIND all content, so collected in the same pre-order walk as collectRects. */
+export function collectShadows(root: ElementNode, cam: Camera, scroll: ScrollMap): ShadowItem[] {
+  const out: ShadowItem[] = [];
+  const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
+    const s = n.props.style ?? {};
+    const x = n.x * cam.scale + cam.tx;
+    const y = (n.y - sy) * cam.scale + cam.ty;
+    const w = n.w * cam.scale;
+    const h = n.h * cam.scale;
+    const sh = s.boxShadow;
+    if (sh) {
+      out.push({
+        x, y, w, h,
+        ox: (sh.x ?? 0) * cam.scale,
+        oy: (sh.y ?? 0) * cam.scale,
+        blur: Math.max(0, (sh.blur ?? 0) * cam.scale),
+        spread: (sh.spread ?? 0) * cam.scale,
+        radius: (s.radius ?? 0) * cam.scale,
+        color: sh.color ?? DEFAULT_SHADOW,
+        clip,
+      });
+    }
+    if (n.props.glass || n.props.material) return; // children render in the FOREGROUND pass
     let childClip = clip;
     let childSy = sy;
     if (s.overflow) {
