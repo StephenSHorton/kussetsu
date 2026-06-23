@@ -1,8 +1,8 @@
 // Minimal flexbox: intrinsic sizing bottom-up, then placement top-down. Supports
 // row/column, padding, gap, fixed/stretch cross-size, align + justify. This is the
 // deliberately-swappable piece — Yoga or Taffy (Rust/WASM) drops in here for real.
-import { type ElementNode, type Style, textOf } from "./scene";
-import { measureWidth } from "./text";
+import { type ElementNode, type Style, textOf } from "./scene.ts";
+import { measureWidth } from "./text.ts";
 
 export function measureText(text: string, s: Style): { w: number; h: number } {
   // Width = sum of per-glyph display-size advances (same source the painter places glyphs by,

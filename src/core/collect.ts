@@ -1,11 +1,11 @@
 // Turn the laid-out scene tree into flat draw/semantics lists, applying the
 // pan/zoom CAMERA (world -> screen), per-region SCROLL offsets, and CLIP rects.
 // Pre-order = parents before children (paint order) and reading order (AT).
-import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene";
+import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene.ts";
 import type { ParticleSpec } from "./particles";
 import type { ClipRect, GlassPanel, MaterialPanel, Rect, TextItem } from "./webgpu";
 import type { SemNode } from "./a11y";
-import { measureWidth, selectionRects } from "./text";
+import { measureWidth, selectionRects } from "./text.ts";
 import type { GlassParams } from "./glassTuning";
 
 const FOCUS_RING: RGBA = [0.35, 0.95, 1.0, 1];

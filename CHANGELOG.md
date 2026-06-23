@@ -5,6 +5,23 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Unit tests for the pure layer** (`test/{color,text,layout,collect}.test.mjs`, ~240 assertions)
+  — the GPU-free, correctness-critical core that previously had zero coverage and regressed
+  silently: color parsing (`parseColor`/`rgba`), text geometry (`measureWidth`/`wrapText`/`hitTest`/
+  `selectionRects`/`caretRect`, via a deterministic fake-canvas helper), Yoga layout
+  (direction/padding/gap/stretch/percent/justify/align **and the Suspense hidden-node exclusion,
+  incl. `build`/`writeBack` index-alignment**), and the `collect*` passes (camera/scroll
+  transforms, focus ring, clip, and **hidden-subtree exclusion** across rects/texts/semantics).
+  (Road to 1.0 — Pillar 2)
+
+### Changed
+
+- Core modules `layout.ts` / `collect.ts` / `yogaLayout.ts` now use explicit `.ts` extensions on
+  their relative value-imports (matching `compat/` and `hostConfig.ts`), so they load under the
+  Node test runner. No behavior or build change (Vite/tsc resolve `.ts` either way).
+
 ## [0.3.0] — 2026-06-22
 
 Migrate the custom renderer from React 18 to **React 19**. The whole React-18 coupling lived

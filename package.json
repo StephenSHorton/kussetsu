@@ -21,7 +21,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts && tsc -p tsconfig.lib.json",
-    "test": "node test/compat.test.mjs && node test/reconciler.test.mjs && npm run test:types",
+    "test": "node test/color.test.mjs && node test/text.test.mjs && node test/layout.test.mjs && node test/collect.test.mjs && node test/compat.test.mjs && node test/reconciler.test.mjs && npm run test:types",
     "test:types": "npm run build:lib && tsc --noEmit -p test/types/tsconfig.json",
     "prepublishOnly": "npm run build:lib"
   },

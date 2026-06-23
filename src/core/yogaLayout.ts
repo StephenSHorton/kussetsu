@@ -7,9 +7,9 @@
 // (the module top-level-awaits the WASM); enums are named exports.
 import Yoga, { Align, Direction, Edge, FlexDirection, Gutter, Justify, MeasureMode, PositionType, Wrap } from "yoga-layout";
 import type { Node as YogaNode } from "yoga-layout";
-import { type ElementNode, type Size, type Style, textOf } from "./scene";
-import { measureText } from "./layout";
-import { wrapText } from "./text";
+import { type ElementNode, type Size, type Style, textOf } from "./scene.ts";
+import { measureText } from "./layout.ts";
+import { wrapText } from "./text.ts";
 
 // When true, every text node keeps full wrap geometry so page-wide text selection works.
 let selectableAll = false;
