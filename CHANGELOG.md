@@ -34,7 +34,7 @@ incompatible HostConfig contract, so this is a clean switch, not a dual-support 
     `trackSchedulerEvent`, `resolveEventType`/`resolveEventTimeStamp`) and the two value
     members (`NotPendingTransition`, `HostTransitionContext`) — no-ops/defaults for this renderer.
   - Added the Offscreen visibility hooks (`hideInstance` / `unhideInstance` /
-    `hideTextInstance` / `unhideTextInstance`) so a `<Suspense>` boundary flip no longer throws.
+    `hideTextInstance` / `unhideTextInstance`), wired to real subtree hiding (see Added).
 - **JSX intrinsics augmentation moved to `declare module "react"`** — React 19 dropped the
   global `JSX` namespace, so the React-18-era `declare global { namespace JSX }` no longer
   registered `<view>` / `<text>` under the `react-jsx` runtime.
@@ -42,18 +42,21 @@ incompatible HostConfig contract, so this is a clean switch, not a dual-support 
 
 ### Added
 
+- **Suspense / `<Activity>` visibility is now fully wired** (not just crash-safe). A `hidden`
+  flag on scene nodes — toggled by the reconciler's hide/unhide hooks when a `<Suspense>`
+  boundary flips to/from its fallback — is honored across the whole render pipeline: every
+  `collect*` paint/semantics/scroll/selection/editable pass, Yoga layout (`build` + `writeBack`
+  stay index-aligned, so a hidden subtree takes **no layout space** — the fallback flows
+  normally), hit-testing, page-scroll measurement, and the a11y overlay. A suspended subtree
+  paints nothing, takes no space, and receives no input, then fully reappears on resolve.
+  Suspending a field *while it's being edited* also releases the transparent text-input overlay
+  (so a focused, off-screen field can't keep capturing keystrokes or trap keyboard/AT focus).
 - **Runtime reconciler smoke test** (`test/reconciler.test.mjs`) — drives the production
   concurrent root through mount → prop update → child add/remove → unmount and a full
-  `<Suspense>` re-suspend → resolve cycle, asserting the scene graph mutates correctly. This
-  closes the prior gap where no test exercised the reconciler at runtime (so a wrong
-  `commitUpdate` signature or a missing visibility hook would have shipped silently).
-
-### Known limitations
-
-- **Suspense / `<Activity>` visual hiding is not implemented yet.** The visibility hooks exist
-  (no crash), but a suspended subtree isn't removed from the paint/layout passes, so it can
-  overlap the fallback. Correct hiding needs a `hidden` flag honored across every `collect*`
-  pass plus yoga `display:none`; tracked as a follow-up. (This matched the React-18 build too.)
+  `<Suspense>` re-suspend → resolve cycle, asserting the scene graph mutates correctly **and
+  that the hidden subtree is excluded from the visible tree then fully unhidden**. This closes
+  the prior gap where no test exercised the reconciler at runtime (so a wrong `commitUpdate`
+  signature or a broken visibility hook would have shipped silently).
 
 ## [0.2.0] — 2026-06-22
 

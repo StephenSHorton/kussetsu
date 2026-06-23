@@ -15,7 +15,8 @@ export function measureText(text: string, s: Style): { w: number; h: number } {
 }
 
 function elementChildren(node: ElementNode): ElementNode[] {
-  return node.children.filter((c): c is ElementNode => c.kind === "element");
+  // Skip hidden subtrees (Suspense/Activity) — they take no layout space.
+  return node.children.filter((c): c is ElementNode => c.kind === "element" && !c.hidden);
 }
 
 // Children that participate in flow layout (absolutely-positioned ones don't).

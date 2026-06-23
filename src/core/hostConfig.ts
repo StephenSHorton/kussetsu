@@ -178,19 +178,24 @@ const hostConfig: any = {
     return null; // commit can proceed immediately
   },
 
-  // Suspense / <Activity> VISIBILITY hooks. The reconciler calls these unconditionally in
-  // mutation mode whenever an Offscreen subtree's visibility toggles (a <Suspense> boundary
-  // flipping to/from its fallback, or <Activity mode="hidden">) — they MUST exist or each
-  // host/text node in the toggled subtree throws. They are no-ops here: this renderer paints
-  // from the scene graph across many traversals (collect*/layout/a11y/hit-test), and visually
-  // hiding a subtree correctly also needs yoga `display:none` so it stops taking layout space.
-  // That cross-pipeline work is tracked as a follow-up; until then a suspended subtree stays
-  // painted (it overlaps the fallback) rather than being hidden — same behavior as the prior
-  // React-18 build, minus the swallowed TypeErrors these stubs prevent.
-  hideInstance() {},
-  hideTextInstance() {},
-  unhideInstance() {},
-  unhideTextInstance() {},
+  // Suspense / <Activity> VISIBILITY hooks. The reconciler calls these (mutation mode)
+  // whenever an Offscreen subtree's visibility toggles — a <Suspense> boundary flipping
+  // to/from its fallback, or <Activity mode="hidden">. We flip a `hidden` flag on the scene
+  // node; every layout/paint/hit-test pass skips hidden nodes (see scene.ts), so the subtree
+  // stops taking space, painting, and receiving input, then fully reappears on unhide.
+  // resetAfterCommit fires one repaint per commit, so toggling the flag is enough.
+  hideInstance(instance: ElementNode) {
+    instance.hidden = true;
+  },
+  hideTextInstance(textInstance: { hidden?: boolean }) {
+    textInstance.hidden = true;
+  },
+  unhideInstance(instance: ElementNode) {
+    instance.hidden = false;
+  },
+  unhideTextInstance(textInstance: { hidden?: boolean }) {
+    textInstance.hidden = false;
+  },
 
   // React-19 transition / form-action / scheduling members (no-ops for this renderer).
   NotPendingTransition,

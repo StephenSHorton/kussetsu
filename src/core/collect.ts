@@ -66,7 +66,7 @@ export function collectRects(root: ElementNode, focusedId: number | null, cam: C
       childClip = clip ? intersect(clip, own) : own;
       if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
     }
-    for (const c of n.children) if (c.kind === "element") walk(c, childClip, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
   };
   walk(root, undefined, 0);
   return out;
@@ -100,7 +100,7 @@ export function collectTexts(root: ElementNode, cam: Camera, scroll: ScrollMap):
       childClip = clip ? intersect(clip, own) : own;
       if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
     }
-    for (const c of n.children) if (c.kind === "element") walk(c, childClip, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
   };
   walk(root, undefined, 0);
   return out;
@@ -129,15 +129,15 @@ export function collectForeground(root: ElementNode, cam: Camera, scroll: Scroll
         if (str) texts.push({ x, y, text: str, size, weight, color, tracking });
       }
     }
-    for (const c of n.children) if (c.kind === "element") emit(c, sy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) emit(c, sy);
   };
   const find = (n: ElementNode, sy: number) => {
     if (n.props.glass || n.props.material) {
-      for (const c of n.children) if (c.kind === "element") emit(c, sy);
+      for (const c of n.children) if (c.kind === "element" && !c.hidden) emit(c, sy);
       return; // nested glass/material not handled — fine for now
     }
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
-    for (const c of n.children) if (c.kind === "element") find(c, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) find(c, childSy);
   };
   find(root, 0);
   return { rects, texts };
@@ -162,7 +162,7 @@ export function collectMaterials(root: ElementNode, cam: Camera, scroll: ScrollM
       });
     }
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
-    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childSy);
   };
   walk(root, 0);
   return out;
@@ -193,7 +193,7 @@ export function collectGlass(root: ElementNode, cam: Camera, scroll: ScrollMap, 
       });
     }
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
-    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childSy);
   };
   walk(root, 0);
   return out;
@@ -237,7 +237,7 @@ export function collectSemantics(root: ElementNode, cam: Camera, scroll: ScrollM
       childClip = clip ? intersect(clip, own) : own;
       if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
     }
-    for (const c of n.children) if (c.kind === "element") walk(c, childClip, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childClip, childSy);
   };
   walk(root, undefined, 0);
   return out;
@@ -323,12 +323,12 @@ export function collectEditable(root: ElementNode, cam: Camera): EditableRegion[
           tnode = m;
           return;
         }
-        for (const c of m.children) if (c.kind === "element") ft(c);
+        for (const c of m.children) if (c.kind === "element" && !c.hidden) ft(c);
       };
       ft(n);
       out.push({ id: n.id, x: n.x * cam.scale + cam.tx, y: n.y * cam.scale + cam.ty, w: n.w * cam.scale, h: n.h * cam.scale, value: n.props.value ?? "", onChange: n.props.onChange, textNode: tnode, scale: cam.scale });
     }
-    for (const c of n.children) if (c.kind === "element") walk(c);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c);
   };
   walk(root);
   return out;
@@ -351,7 +351,7 @@ export function collectSelectable(root: ElementNode, cam: Camera, all = false): 
     if (n.type === "text" && (all || n.props.selectable) && n.wrapped) {
       out.push({ id: n.id, x: n.x * cam.scale + cam.tx, y: n.y * cam.scale + cam.ty, w: n.w * cam.scale, h: n.h * cam.scale, node: n, scale: cam.scale });
     }
-    for (const c of n.children) if (c.kind === "element") walk(c);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c);
   };
   walk(root);
   return out;
@@ -380,7 +380,7 @@ export function collectPostProcess(root: ElementNode, cam: Camera, scroll: Scrol
       return;
     }
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
-    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childSy);
   };
   walk(root, 0);
   return found;
@@ -392,7 +392,7 @@ export function collectParticles(root: ElementNode, scroll: ScrollMap): Particle
   const walk = (n: ElementNode, sy: number) => {
     if (n.props.particles) out.push({ id: n.id, rect: [n.x, n.y - sy, n.w, n.h], spec: n.props.particles });
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
-    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childSy);
   };
   walk(root, 0);
   return out;
@@ -406,7 +406,7 @@ export function collectScrollRegions(root: ElementNode, cam: Camera, scroll: Scr
     let childSy = sy;
     if (s.overflow === "scroll") {
       let contentBottom = n.y;
-      for (const c of n.children) if (c.kind === "element") contentBottom = Math.max(contentBottom, c.y + c.h);
+      for (const c of n.children) if (c.kind === "element" && !c.hidden) contentBottom = Math.max(contentBottom, c.y + c.h);
       const maxScroll = Math.max(0, contentBottom - n.y + (s.padding ?? 0) - n.h);
       out.push({
         id: n.id,
@@ -415,7 +415,7 @@ export function collectScrollRegions(root: ElementNode, cam: Camera, scroll: Scr
       });
       childSy = sy + (scroll.get(n.id) ?? 0);
     }
-    for (const c of n.children) if (c.kind === "element") walk(c, childSy);
+    for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childSy);
   };
   walk(root, 0);
   return out;

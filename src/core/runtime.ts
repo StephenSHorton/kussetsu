@@ -548,7 +548,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       const measureBottom = (n: ElementNode) => {
         contentBottom = Math.max(contentBottom, n.y + n.h);
         if (n.props.style?.overflow) return; // clipped container — its children don't grow the page
-        for (const c of n.children) if (c.kind === "element") measureBottom(c);
+        for (const c of n.children) if (c.kind === "element" && !c.hidden) measureBottom(c);
       };
       measureBottom(root);
     }
@@ -563,6 +563,19 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
         positionInput(r); // keep the input over the field as layout moves
         const caret = editCaretRect(r, caretOffset, camera);
         if (caret) fg.rects.push(caret); // caret on top (composer input sits on glass)
+      } else {
+        // The edited field was suspended/hidden (<Suspense> fallback or <Activity mode="hidden">)
+        // while focused, so it dropped out of `editables`. The transparent <input> is a DOM sibling
+        // of the canvas, outside React's tree — the browser never blurred it, so it would keep
+        // capturing keystrokes/IME, trap keyboard + AT focus on a ghost field, and (via editingId)
+        // keep the root's copy handler disabled. Release it through the blur handler (single source
+        // of truth: clears editingId + hides the input); defensively clear if it wasn't focused.
+        editInput.blur();
+        if (editingId != null) {
+          editInput.style.display = "none";
+          editingId = null;
+          container.dirty = true;
+        }
       }
     }
     const materials = collectMaterials(root, camera, scrollY);
@@ -734,7 +747,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
         const sh = n.h * camera.scale;
         if (x >= sx && x <= sx + sw && y >= sy && y <= sy + sh) hit = n.id; // deepest contained node wins
         const childScroll = n.props.style?.overflow === "scroll" ? scrollOff + (scrollY.get(n.id) ?? 0) : scrollOff;
-        for (const c of n.children) if (c.kind === "element") walk(c, childScroll);
+        for (const c of n.children) if (c.kind === "element" && !c.hidden) walk(c, childScroll);
       };
       walk(root, 0);
       return hit;

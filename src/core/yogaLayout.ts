@@ -118,7 +118,7 @@ function build(scene: ElementNode): YogaNode {
 
   let i = 0;
   for (const c of scene.children) {
-    if (c.kind === "element") yn.insertChild(build(c), i++);
+    if (c.kind === "element" && !c.hidden) yn.insertChild(build(c), i++);
   }
   return yn;
 }
@@ -135,7 +135,7 @@ function writeBack(scene: ElementNode, yn: YogaNode, absL: number, absT: number)
   if (scene.type === "text") return;
   let i = 0;
   for (const c of scene.children) {
-    if (c.kind === "element") writeBack(c, yn.getChild(i++), x, y);
+    if (c.kind === "element" && !c.hidden) writeBack(c, yn.getChild(i++), x, y);
   }
 }
 

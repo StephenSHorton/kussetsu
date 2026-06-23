@@ -84,17 +84,21 @@ ok("unmount: container emptied", container.children.length === 0);
 // reconciler-level error leaked to console.error. (Verified to have teeth: making any of the
 // four hooks throw fails the "no reconciler error" assertion below.)
 {
-  // Collect every text label anywhere in the scene tree (shape-agnostic).
-  const allText = (node, out = []) => {
+  // VISIBLE text — mirrors the real paint/layout passes, which skip hidden subtrees.
+  const visibleText = (node, out = []) => {
     for (const c of node.children ?? []) {
+      if (c.hidden) continue; // a hidden subtree paints nothing
       if (c.kind === "text") out.push(c.text);
       else if (c.kind === "element") {
         if (c.type === "text") out.push(textOf(c));
-        else allText(c, out);
+        else visibleText(c, out);
       }
     }
     return out;
   };
+  // Any element/text node flagged hidden anywhere in the tree.
+  const anyHidden = (node) =>
+    (node.children ?? []).some((c) => c.hidden || (c.kind === "element" && anyHidden(c)));
   const cache = new Map(); // version -> { promise, done, resolve }
   const resource = (v) => {
     let e = cache.get(v);
@@ -127,19 +131,24 @@ ok("unmount: container emptied", container.children.length === 0);
   console.error = (...a) => errors.push(a.map(String).join(" "));
   try {
     await act(() => sRoot.render(h(Boundary)));
-    ok("suspense mount: primary v0 visible", allText(sContainer).includes("v0"));
+    ok("suspense mount: primary v0 visible", visibleText(sContainer).includes("v0"));
+    ok("suspense mount: nothing hidden", !anyHidden(sContainer));
 
     // Urgent (non-transition) update to an unresolved version → boundary re-suspends →
     // the live v0 subtree is HIDDEN and the fallback shown.
     await act(() => setV(1));
-    ok("suspense re-suspend: fallback shown", allText(sContainer).includes("loading"));
+    const reSuspend = visibleText(sContainer);
+    ok("suspense re-suspend: fallback shown", reSuspend.includes("loading"));
+    ok("suspense re-suspend: hidden v0 excluded from the visible tree", !reSuspend.includes("v0"));
+    ok("suspense re-suspend: a subtree is flagged hidden", anyHidden(sContainer));
 
     // Resolve v1 → primary UNHIDDEN / replaced.
     await act(async () => {
       resource(1).resolve();
       await resource(1).promise;
     });
-    ok("suspense resolve: primary v1 visible", allText(sContainer).includes("v1"));
+    ok("suspense resolve: primary v1 visible", visibleText(sContainer).includes("v1"));
+    ok("suspense resolve: nothing left hidden (fully unhidden)", !anyHidden(sContainer));
   } finally {
     console.error = origError;
   }

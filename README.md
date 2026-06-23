@@ -286,10 +286,9 @@ renderer with a real published-library shape, not a finished framework. Known ca
 - **React 19 only.** The custom reconciler is built on `react-reconciler@0.33` (React 19.2),
   so the peer range is `^19.2.0`. React 18 is no longer supported (the 0.29-era HostConfig it
   required is incompatible with the React-19 contract). Pin to `kussetsu@0.2.x` if you need React 18.
-- **Suspense / `<Activity>` visibility isn't wired yet.** A `<Suspense>` boundary works, but
-  when it flips to its fallback the suspended subtree isn't visually hidden (it can overlap the
-  fallback) — the reconciler's hide/unhide hooks are present (no crash) but not yet honored by
-  the painter/layout. Tracked as a follow-up.
+- **Suspense / `<Activity>` is supported.** A `<Suspense>` boundary flipping to its fallback
+  hides the suspended subtree across the whole pipeline — it paints nothing, takes no layout
+  space (the fallback flows normally), and receives no input — then fully reappears on resolve.
 - **Use the `<View>` / `<Text>` components, not lowercase intrinsics.** `@types/react`
   already claims `view` and `text` for SVG in `JSX.IntrinsicElements`, and a JSX
   augmentation can only *merge* with that (intersecting Kussetsu's `style: Style` with

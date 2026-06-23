@@ -152,6 +152,11 @@ export interface ElementNode {
   props: NodeProps;
   parent: AnyNode | Container | null;
   children: AnyNode[];
+  // Set by the reconciler's hideInstance/unhideInstance hooks when a <Suspense>/<Activity>
+  // boundary toggles this subtree's visibility. Every layout/paint/hit-test pass skips a
+  // node (and its subtree) while this is true, so a hidden subtree neither paints, takes
+  // layout space, nor receives input — it stays mounted, ready to reappear.
+  hidden?: boolean;
   // computed layout (CSS px, top-left origin)
   x: number;
   y: number;
@@ -165,6 +170,7 @@ export interface TextNode {
   kind: "text";
   text: string;
   parent: AnyNode | Container | null;
+  hidden?: boolean; // hidden by a Suspense/Activity visibility toggle (see ElementNode.hidden)
 }
 
 export type AnyNode = ElementNode | TextNode;
@@ -190,7 +196,7 @@ export function newText(text: string): TextNode {
 /** Concatenated string content of a <text> element (its text-node children). */
 export function textOf(node: ElementNode): string {
   let s = "";
-  for (const c of node.children) if (c.kind === "text") s += c.text;
+  for (const c of node.children) if (c.kind === "text" && !c.hidden) s += c.text;
   return s;
 }
 
@@ -198,7 +204,7 @@ export function textOf(node: ElementNode): string {
 export function firstText(node: ElementNode): string {
   if (node.type === "text") return textOf(node);
   for (const c of node.children) {
-    if (c.kind === "element") {
+    if (c.kind === "element" && !c.hidden) {
       const t = firstText(c);
       if (t) return t;
     }
