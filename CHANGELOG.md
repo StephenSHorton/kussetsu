@@ -66,6 +66,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Fixed
 
+- **Clean fallback on a GPU too small for the glyph atlas.** If a device reports
+  `maxTextureDimension2D < 2048` (below the 8192 WebGPU guarantees — a non-compliant or
+  under-reporting adapter), creating the 2048² atlas used to crash with an uncaught validation
+  error. The renderer now checks this on device acquisition and fails cleanly to the WebGPU
+  fallback instead (`<GpuCanvas>` shows its `fallback`; device-loss recovery gives up via
+  `onDeviceLost`). `requiredLimits` is deliberately not used (it would cap the limit downward and
+  degrade capable hardware); canvas-sized render targets remain clamped to the device limit.
 - **Glyph-atlas overflow now fails loud.** When the 2048² atlas fills (too many distinct
   weight/size combinations, or a large character set like CJK), further glyphs still render blank
   — but the renderer now emits a one-time `console.warn` explaining it, instead of silently

@@ -699,7 +699,9 @@ export class Painter {
     const adapter = await navigator.gpu.requestAdapter();
     if (!adapter) throw new Error("No GPUAdapter");
     const p = new Painter(canvas);
-    p.device = await adapter.requestDevice();
+    const device = await adapter.requestDevice();
+    Painter.assertCapable(device); // before committing — fails clean to the WebGPU fallback
+    p.device = device;
     p.attachDeviceHandlers();
     p.context = canvas.getContext("webgpu") as GPUCanvasContext;
     p.format = navigator.gpu.getPreferredCanvasFormat();
@@ -722,6 +724,21 @@ export class Painter {
     this.device.addEventListener("uncapturederror", (e) => console.error("[webgpu uncaptured]", (e as GPUUncapturedErrorEvent).error.message));
   }
 
+  // Fail CLEANLY on a GPU that can't back the fixed-size glyph atlas. WebGPU guarantees
+  // maxTextureDimension2D >= 8192, so this never trips on a compliant device — but a constrained
+  // or under-reporting adapter would otherwise crash with an uncaught validation error mid-build
+  // when createTexture([ATLAS_SIZE, ATLAS_SIZE]) runs. Validate a freshly-acquired device BEFORE
+  // committing it to this.device, and destroy the incapable one so it isn't leaked. Throwing routes
+  // to the WebGPU fallback: create() rejects → <GpuCanvas> shows its fallback; recover() catches →
+  // gives up → onDeviceLost. (Canvas-sized render targets are separately clamped to it in resize().)
+  private static assertCapable(device: GPUDevice) {
+    const max = device.limits.maxTextureDimension2D;
+    if (max < ATLAS_SIZE) {
+      device.destroy();
+      throw new Error(`[kussetsu] WebGPU device unsupported: maxTextureDimension2D=${max} < ${ATLAS_SIZE} required for the glyph atlas.`);
+    }
+  }
+
   /** Re-acquire the GPU device and rebuild ALL device-owned resources on the same canvas after a
    *  loss. The scene tree (React state) is untouched — only GPU resources died — so the runtime
    *  just resumes its loop + repaints. Returns false if re-acquisition fails (caller gives up). */
@@ -730,7 +747,9 @@ export class Painter {
       if (!navigator.gpu) return false;
       const adapter = await navigator.gpu.requestAdapter();
       if (!adapter) return false;
-      this.device = await adapter.requestDevice();
+      const device = await adapter.requestDevice();
+      Painter.assertCapable(device); // throws (destroying the incapable device) → caught below → onDeviceLost
+      this.device = device;
       this.lost = false;
       this.attachDeviceHandlers();
       this.context.configure({ device: this.device, format: this.format, alphaMode: "premultiplied" });
