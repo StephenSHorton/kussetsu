@@ -5,15 +5,26 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
-### Changed
+## [0.5.0] — 2026-06-23
 
-- **Text is now crisp at any zoom (single-channel SDF glyph atlas).** Glyphs are stored as a signed
-  distance field instead of raster coverage, and the shader recovers the edge with a
-  screen-space-derivative `smoothstep` — so text stays sharp when the pan/zoom camera magnifies it
-  past the atlas base size (previously it softened/bilinear-blurred). No API change; UI-mode text
-  (no camera zoom) looks the same. The SDF is generated with an exact Euclidean distance transform
-  (Felzenszwalb & Huttenlocher, after mapbox/tiny-sdf) from the rasterized glyph, once per cached
-  glyph. (Road to 1.0 — Pillar 3, feature win)
+The Pillar-3 feature wins: drawing **images**, a **z-index / overlay** layer (modals, dropdowns,
+tooltips), and **crisp text at any zoom**. **Backward compatible — no breaking changes.** The API is
+still deliberately unfrozen — more additive 0.x releases may land before 1.0.
+
+### Added
+
+- **Image / icon / texture drawing** — a node can now render an image: `<Image src="…" />` (sugar) or
+  `<View image={{ src, fit }} />` (the `image` prop on any node). Sources are URLs, data URIs, blob URLs,
+  or **SVG** (loaded via an `<img>` so SVG decodes; CORS-enabled remote images work). Each `src` is fetched
+  once, uploaded to a premultiplied GPU texture, and cached (bounded LRU); loads are async and trigger a
+  repaint when ready. `fit` controls how the image fills the box: **`cover`** (default — fill + crop),
+  **`contain`** (whole image, letterboxed), **`fill`** (stretch). The image is clipped to the box's
+  `radius` (so `radius = ½ size` gives a circular avatar), respects `cornerSmoothing`, the camera
+  (pan/zoom), scroll, and overflow clip. Drawn over solid rects/text and under glass. New exports:
+  `Image`, `ImageProps`, `ImageSpec`.
+  - v1 limitations (documented): an image paints *above* the box's own fill/text (great for icons,
+    avatars, photos, logos); to layer content *above* an image, put that content in a higher-`zIndex`
+    overlay. Images inside a group-`opacity` subtree don't fade with it (like glass/material).
 
 - **`zIndex` — overlay / stacking layer.** `style.zIndex` (a number) lifts a node + its subtree to an
   **overlay layer** painted above all normal content, with overlays sorted ascending by `zIndex`
@@ -22,25 +33,21 @@ All notable changes to Kussetsu are documented here. This project adheres to
   a dropdown isn't clipped by its container and a tooltip stays put as the page scrolls. **Hit-testing
   is z-aware** — an overlay receives clicks above the content it covers, regardless of tree order, and
   its content stays in the accessibility tree. Carries the node's rects, text, images, and box-shadow.
-  (Road to 1.0 — Pillar 3, feature win)
   - v1 limitations (documented): the overlay layer paints solid content (rects/text/images/shadows);
     `glass` / `material` / `particles` inside an overlay aren't lifted with it, and a group-`opacity`
     element inside an overlay renders **un-faded** (its fade isn't carried into the layer; `opacity` on
     the overlay node itself is ignored). Overlays don't *trap* background scroll/pan/selection — for a
     true modal, add a full-screen overlay rect to capture input behind it.
 
-- **Image / icon / texture drawing** — a node can now render an image: `<Image src="…" />` (sugar) or
-  `<View image={{ src, fit }} />` (the `image` prop on any node). Sources are URLs, data URIs, blob URLs,
-  or **SVG** (loaded via an `<img>` so SVG decodes; CORS-enabled remote images work). Each `src` is fetched
-  once, uploaded to a premultiplied GPU texture, and cached; loads are async and trigger a repaint when
-  ready. `fit` controls how the image fills the box: **`cover`** (default — fill + crop), **`contain`**
-  (whole image, letterboxed), **`fill`** (stretch). The image is clipped to the box's `radius`
-  (so `radius = ½ size` gives a circular avatar), respects `cornerSmoothing`, the camera (pan/zoom),
-  scroll, and overflow clip. Drawn over solid rects/text and under glass. New exports: `Image`,
-  `ImageProps`, `ImageSpec`. (Road to 1.0 — Pillar 3, feature win)
-  - v1 limitations (documented): an image paints *above* the box's own fill/text (great for icons,
-    avatars, photos, logos; a full-bleed image *behind* its own text is a stacking concern for the
-    upcoming z-index work); images inside a group-`opacity` subtree don't fade with it (like glass/material).
+### Changed
+
+- **Text is now crisp at any zoom (single-channel SDF glyph atlas).** Glyphs are stored as a signed
+  distance field instead of raster coverage, and the shader recovers the edge with a
+  screen-space-derivative `smoothstep` — so text stays sharp when the pan/zoom camera magnifies it
+  past the atlas base size (previously it softened/bilinear-blurred). No API change; UI-mode text
+  (no camera zoom) looks the same. The SDF is generated with an exact Euclidean distance transform
+  (Felzenszwalb & Huttenlocher, after mapbox/tiny-sdf) from the rasterized glyph, once per cached
+  glyph. The glyph atlas is now `r8unorm` (single channel), cutting it from 16 MB to 4 MB.
 
 ## [0.4.0] — 2026-06-23
 
