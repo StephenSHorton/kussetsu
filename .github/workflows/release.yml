@@ -1,0 +1,31 @@
+name: Publish to npm
+
+# Publishes `kussetsu` to npm via OIDC "trusted publishing" — no NPM_TOKEN secret. Runs when a
+# GitHub Release is published. The trusted publisher must be configured on npmjs.com (package
+# Settings → Trusted Publisher → GitHub Actions) to match THIS file: repo StephenSHorton/kussetsu,
+# workflow `release.yml`. npm exchanges the short-lived OIDC token below for publish auth and
+# attaches build provenance automatically.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: # manual re-run if a publish needs retrying
+
+permissions:
+  contents: read
+  id-token: write # the OIDC token npm trades for short-lived publish credentials
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest # trusted publishing needs npm >= 11.5.1 (Node 20 ships older)
+      - run: npm ci
+      - run: npm test # gate: compat mapper + consumer type-check (also builds the lib)
+      - run: npm publish # OIDC trusted publishing — no token; prepublishOnly rebuilds dist; provenance auto
