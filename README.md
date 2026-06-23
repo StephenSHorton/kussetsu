@@ -249,17 +249,19 @@ responsive variants, transforms, portals) — **fails loud at build time with a
 file:line**, not a blank box you ship. It's a head start for the supported subset,
 not "your app just works." See `src/compat/COVERAGE.md` and `src/compat/DESIGN.md`.
 
-**How to use it today:** it's an **in-repo recipe**, not yet a published import — clone the repo
-and run the `?compat` demo, or vendor `src/compat/` into your app and wire the Vite plugin in
-your `vite.config.ts` (it runs an `enforce: 'pre'` pass, so place it **before** `react()`):
+**Use it** by wiring the Vite plugin into your `vite.config.ts` — it runs an `enforce: 'pre'`
+pass, so place it **before** `react()`:
 
 ```ts
-import { kussetsuCompatVite } from "./compat"; // vendored from src/compat/
+import { kussetsuCompatVite } from "kussetsu/compat"; // build-time; needs @babel/core (peer)
 plugins: [kussetsuCompatVite(), react()];
 ```
 
-Shipping it as an installable `kussetsu/compat` subpath (a Node plugin entry + a separate
-browser runtime resolver, with `@babel/core` as a peer dep) is tracked as a future enhancement.
+`kussetsu/compat` is the **build-time** entry (Vite + Babel); install `@babel/core` alongside it
+(an optional peer). The raw Babel plugin (`kussetsuCompatBabel`) and the pure CSS→`Style` mappers
+are exported there too, for non-Vite setups. The opt-in **browser** runtime resolver for dynamic
+styles lives at the babel-free subpath **`kussetsu/compat/runtime`** (`__kStyle`/`__kClass`/`__kMerge`),
+so importing it into app code never pulls in Babel. See `src/compat/COVERAGE.md` and `DESIGN.md`.
 
 ## Develop
 

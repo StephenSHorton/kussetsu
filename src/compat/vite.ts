@@ -8,7 +8,6 @@
 // own @babel/core makes the on-ramp independent of how the React plugin lowers JSX.
 
 import * as babel from "@babel/core";
-import type { Plugin } from "vite";
 import kussetsuCompat from "./babel.ts";
 
 export interface CompatOptions {
@@ -19,7 +18,17 @@ export interface CompatOptions {
   exclude?: RegExp;
 }
 
-export function kussetsuCompatVite(options: CompatOptions = {}): Plugin {
+/** The shape we return — a minimal, structural Vite plugin (`name` + `enforce:'pre'` + a
+ *  `transform` hook). It's assignable to vite's `Plugin`, so `plugins: [kussetsuCompatVite()]`
+ *  type-checks, WITHOUT making the published types import (and re-bundle) vite's whole type graph.
+ *  `map` is `any` because it's a build-time source map handed straight to vite. */
+export interface CompatVitePlugin {
+  name: string;
+  enforce: "pre";
+  transform(code: string, id: string): Promise<{ code: string; map?: any } | null>;
+}
+
+export function kussetsuCompatVite(options: CompatOptions = {}): CompatVitePlugin {
   const include = options.include ?? /\.[jt]sx$/;
   const { exclude } = options;
   return {
