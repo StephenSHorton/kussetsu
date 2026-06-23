@@ -29,7 +29,7 @@
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts && vite build --config vite.compat.config.ts && tsc -p tsconfig.lib.json && dts-bundle-generator -o dist/index.d.ts --project tsconfig.json --no-check src/core/index.ts && dts-bundle-generator -o dist/compat/index.d.ts --project tsconfig.json --no-check src/compat/index.ts && dts-bundle-generator -o dist/compat/runtime.d.ts --project tsconfig.json --no-check src/compat/runtime.ts",
-    "test": "node test/color.test.mjs && node test/text.test.mjs && node test/layout.test.mjs && node test/collect.test.mjs && node test/compat.test.mjs && node test/reconciler.test.mjs && npm run test:types",
+    "test": "node test/color.test.mjs && node test/text.test.mjs && node test/layout.test.mjs && node test/collect.test.mjs && node test/svg.test.mjs && node test/compat.test.mjs && node test/reconciler.test.mjs && npm run test:types",
     "test:types": "npm run build:lib && tsc --noEmit -p test/types/tsconfig.json",
     "test:browser": "npm run build && node test/browser.test.mjs",
     "prepublishOnly": "npm run build:lib"

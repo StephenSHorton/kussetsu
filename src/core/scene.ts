@@ -168,6 +168,9 @@ export interface NodeProps {
   particles?: import("./particles").ParticleSpec;
   /** Draw an image inside this node's box (clipped to `style.radius`). See {@link ImageSpec}. */
   image?: ImageSpec;
+  /** Render an SVG as REAL vectors (analytic GPU fills — crisp at any zoom), fit into this node's box.
+   *  The value is the SVG source (URL / data URI). Use `<Svg src="…" />`. v1: fills only (no strokes). */
+  svg?: string;
   /** Apply a full-screen post effect, masked to this node's box. See {@link PostProcess}. */
   postProcess?: PostProcess;
   children?: ReactNode;

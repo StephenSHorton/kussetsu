@@ -1,5 +1,19 @@
 import { useState } from "react";
-import { Image, Text, View } from "../core";
+import { Image, Svg, Text, View } from "../core";
+
+// A filled SVG exercising the analytic vector path: rounded rect (arcs) + circle (arcs) + triangle
+// (lines) + a cubic-curve wave + an even-odd square donut. All FILLS — crisp at any zoom.
+const TEST_SVG =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>" +
+      "<rect x='2' y='2' width='96' height='96' rx='16' fill='#1a2030'/>" +
+      "<circle cx='30' cy='32' r='18' fill='#ff5c5c'/>" +
+      "<polygon points='62,12 86,56 38,56' fill='#00d98b'/>" +
+      "<path d='M16 66 C36 92, 78 92, 92 68 L92 90 L16 90 Z' fill='#5c7cff'/>" +
+      "<path d='M58 60 h34 v34 h-34 z M66 68 h18 v18 h-18 z' fill='#ffd23f' fill-rule='evenodd'/>" +
+      "</svg>",
+  );
 import type { RGBA } from "../core/scene";
 
 // A 2:1 (240×120) data-URI image so cover/contain/fill are visually distinct in a square box.
@@ -70,6 +84,13 @@ export function App() {
         <Image src={DEMO_IMG} fit="contain" style={{ width: 120, height: 120, radius: 16, background: [0.1, 0.12, 0.2, 1] }} />
         <Image src={DEMO_IMG} fit="fill" style={{ width: 120, height: 120, radius: 16 }} />
         <Image src={DEMO_IMG} fit="cover" style={{ width: 96, height: 96, radius: 48 }} />
+      </View>
+
+      {/* Real vector-rendered SVG (analytic GPU fills — crisp at any zoom) at three sizes. */}
+      <View style={{ direction: "row", gap: 16, align: "center" }}>
+        <Svg src={TEST_SVG} style={{ width: 240, height: 240 }} />
+        <Svg src={TEST_SVG} style={{ width: 120, height: 120 }} />
+        <Svg src={TEST_SVG} style={{ width: 48, height: 48 }} />
       </View>
 
       {/* Real flexbox (Yoga): a wrapping chip row. */}
