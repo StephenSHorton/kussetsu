@@ -5,39 +5,48 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-06-23
+
+The road-to-1.0 hardening release (pre-freeze): the box-model trio (`margin` / `boxShadow` /
+group `opacity`), automatic WebGPU device-loss recovery, a published `kussetsu/compat` on-ramp,
+and a robustness + test pass. **Backward compatible — no breaking changes.** The public API is
+deliberately **not frozen yet**; expect further additive 0.x releases before 1.0.
+
 ### Added
 
-- **`kussetsu/compat` is now a published subpath** (was an in-repo recipe). Two entries:
-  `kussetsu/compat` — the build-time Vite plugin + raw Babel plugin + pure CSS→`Style` mappers
-  (`@babel/core` is an optional peer; `vite` too); and `kussetsu/compat/runtime` — the babel-free
-  browser runtime resolver (`__kStyle`/`__kClass`/`__kMerge`) for dynamic styles, so importing it
-  into app code never pulls in Babel. Built via `vite.compat.config.ts` with bundled `.d.ts` per
-  entry. The plugin's return type is a local `CompatVitePlugin` (structurally a Vite `Plugin`) so
-  the published types don't re-bundle vite's type graph. (Road to 1.0 — Pillar 4, non-freeze)
-
-### Fixed
-
-- **compat sources now type-check against `@babel/core@8`** — generating the published `.d.ts`
-  surfaced pre-existing type debt never caught before (`PluginObj`→`PluginObject`, the dropped
-  `jsxElement` `selfClosing` arg, an untyped visitor param). Build-time only; no runtime change.
-
-- **Export `ShadowSpec`** — the type of `Style.boxShadow` is now nameable by consumers (was
-  usable inline but not importable).
-- **Broader consumer type-test coverage** (`test/types/consumer.tsx`) — now also guards the new
-  box-model fields (`boxShadow`, `opacity`), the full `GpuRoot` method surface (`frame`,
-  `requestRender`, `resetCamera`, `resize`, `getCanvas`), the full `GpuRootOptions` bag
-  (`pageScroll` / `background` / `onDeviceRestored`), and locks the public types `ShadowSpec` /
-  `GlassSpec` / `Size` / `SpringConfig` / `TextProps` / `GpuControls` / `GpuRootOptions`, plus
-  negative guards for `opacity`/`boxShadow` misuse. (Road to 1.0 — Pillar 4, non-freeze)
-
+- **`margin` Style field** — space *outside* the box, with the same shape as `padding`:
+  `margin` (all sides), `marginX` / `marginY`, and per-side `marginTop` / `marginRight` /
+  `marginBottom` / `marginLeft` (Yoga `setMargin`, same All < axis < per-side specificity).
+  The `kussetsu/compat` layer now **maps** margin too (inline `margin` 1/2/4-value shorthand +
+  per-side + `margin-inline`/`block`, and Tailwind `m-*`/`mx`/`my`/`mt`/`…`) instead of
+  failing loud — closing the biggest remaining compat gap. (`margin: auto` is still unwired.)
+- **`boxShadow` Style field** — a GPU drop shadow painted behind the box:
+  `{ x?, y?, blur?, spread?, color? }` (CSS `box-shadow`, outer only). Rendered as one analytic
+  gaussian-blurred rounded rectangle (the erf technique — no multi-pass blur), in its own pass
+  behind all content (and under glass). Respects `radius`, the camera (pan/zoom), overflow clip,
+  and the Suspense hidden-node exclusion. The `kussetsu/compat` layer doesn't map CSS
+  `box-shadow` yet (use the native field) — a separate follow-up.
+- **`opacity` Style field — true group opacity** (`0..1`). A node with `opacity < 1` and its whole
+  subtree fade as **one unit**: the subtree renders at full alpha into an offscreen texture, then
+  composites onto the scene scaled by the opacity — so overlapping children don't double-darken
+  (the CSS-correct behavior, not a per-node alpha multiply). Faded content stays interactive
+  (semantics/hit-test ignore opacity). v1 limitations (documented): glass/material inside a group
+  render unfaded, nested opacity composites independently (not multiplied), and a faded element's
+  `boxShadow` isn't faded with it.
 - **Automatic device-loss recovery.** When the WebGPU device is lost (GPU crash/reset, sleep/wake,
   TDR) the renderer now re-acquires a device and rebuilds all GPU resources (pipelines, glyph atlas,
   buffers, textures) **in place** and repaints — the React tree is untouched, so no reload and no
   lost state. `onDeviceLost` now fires only if recovery **gives up** (with a backstop against a
   loss→recover→loss loop); a new **`onDeviceRestored`** callback fires on successful in-place
   recovery. (Browser-verified by forcing a device loss and confirming the scene repaints.)
-  (Road to 1.0 — Pillar 1)
-
+- **`kussetsu/compat` is now a published subpath** (was an in-repo recipe). Two entries:
+  `kussetsu/compat` — the build-time Vite plugin + raw Babel plugin + pure CSS→`Style` mappers
+  (`@babel/core` is an optional peer; `vite` too); and `kussetsu/compat/runtime` — the babel-free
+  browser runtime resolver (`__kStyle`/`__kClass`/`__kMerge`) for dynamic styles, so importing it
+  into app code never pulls in Babel. The plugin's return type is a local `CompatVitePlugin`
+  (structurally a Vite `Plugin`) so the published types don't re-bundle vite's type graph.
+- **Exported `ShadowSpec`** — the type of `Style.boxShadow` is now nameable by consumers (was
+  usable inline but not importable).
 - **Headless-WebGPU smoke test** (`npm run test:browser`, `test/browser.test.mjs` + a `browser`
   CI workflow) — mounts the built demo in real (headless, software-WebGPU) Chromium and asserts
   the renderer comes up clean: a WebGPU adapter is present, a `<canvas>` mounts, the
@@ -46,29 +55,7 @@ All notable changes to Kussetsu are documented here. This project adheres to
   error only surfaces when the GPU creates/uses a pipeline (it would have caught the box-shadow
   `fwidth` bug). Runs for real locally / on any WebGPU-capable machine; **skips green** on a
   GPU-less runner (the standard GitHub Actions box has no WebGPU adapter even with software
-  Vulkan), and auto-activates if a WebGPU-capable runner is used. Separate CI workflow so it
-  never blocks the main suite. (Road to 1.0 — Pillar 2)
-
-- **`opacity` Style field — true group opacity** (`0..1`). A node with `opacity < 1` and its whole
-  subtree fade as **one unit**: the subtree renders at full alpha into an offscreen texture, then
-  composites onto the scene scaled by the opacity — so overlapping children don't double-darken
-  (the CSS-correct behavior, not a per-node alpha multiply). Faded content stays interactive
-  (semantics/hit-test ignore opacity). v1 limitations (documented): glass/material inside a group
-  render unfaded, nested opacity composites independently (not multiplied), and a faded element's
-  `boxShadow` isn't faded with it. (Road to 1.0 — Pillar 3, completes the box-model trio)
-- **`boxShadow` Style field** — a GPU drop shadow painted behind the box:
-  `{ x?, y?, blur?, spread?, color? }` (CSS `box-shadow`, outer only). Rendered as one analytic
-  gaussian-blurred rounded rectangle (the erf technique — no multi-pass blur), in its own pass
-  behind all content (and under glass). Respects `radius`, the camera (pan/zoom), overflow clip,
-  and the Suspense hidden-node exclusion. The `kussetsu/compat` layer doesn't map CSS
-  `box-shadow` yet (use the native field) — a separate follow-up. (Road to 1.0 — Pillar 3)
-- **`margin` Style field** — space *outside* the box, with the same shape as `padding`:
-  `margin` (all sides), `marginX` / `marginY`, and per-side `marginTop` / `marginRight` /
-  `marginBottom` / `marginLeft` (Yoga `setMargin`, same All < axis < per-side specificity).
-  The `kussetsu/compat` layer now **maps** margin too (inline `margin` 1/2/4-value shorthand +
-  per-side + `margin-inline`/`block`, and Tailwind `m-*`/`mx`/`my`/`mt`/`…`) instead of
-  failing loud — closing the biggest remaining compat gap. (`margin: auto` is still unwired.)
-  (Road to 1.0 — Pillar 3, box-model)
+  Vulkan), and auto-activates if a WebGPU-capable runner is used.
 - **Unit tests for the pure layer** (`test/{color,text,layout,collect}.test.mjs`, ~240 assertions)
   — the GPU-free, correctness-critical core that previously had zero coverage and regressed
   silently: color parsing (`parseColor`/`rgba`), text geometry (`measureWidth`/`wrapText`/`hitTest`/
@@ -76,10 +63,24 @@ All notable changes to Kussetsu are documented here. This project adheres to
   (direction/padding/gap/stretch/percent/justify/align **and the Suspense hidden-node exclusion,
   incl. `build`/`writeBack` index-alignment**), and the `collect*` passes (camera/scroll
   transforms, focus ring, clip, and **hidden-subtree exclusion** across rects/texts/semantics).
-  (Road to 1.0 — Pillar 2)
+- **Broader consumer type-test coverage** (`test/types/consumer.tsx`) — now also guards the new
+  box-model fields (`boxShadow`, `opacity`), the full `GpuRoot` method surface (`frame`,
+  `requestRender`, `resetCamera`, `resize`, `getCanvas`), the full `GpuRootOptions` bag
+  (`pageScroll` / `background` / `onDeviceRestored`), and locks the public types `ShadowSpec` /
+  `GlassSpec` / `Size` / `SpringConfig` / `TextProps` / `GpuControls` / `GpuRootOptions`, plus
+  negative guards for `opacity`/`boxShadow` misuse.
 
 ### Fixed
 
+- **GPU resources are released on teardown.** `createGpuRoot().destroy()` (and `<GpuCanvas>`
+  unmount) now calls a new `Painter.destroy()` that releases the `GPUDevice`, the ~16MB glyph
+  atlas, every texture/buffer, and clears the pipeline/glyph caches. Previously teardown freed
+  React/DOM but **nothing GPU-side**, so every mount→unmount cycle (every route change, and
+  React StrictMode's dev double-mount) leaked a whole device + atlas.
+- **A device lost mid-frame no longer throws out of the render loop.** `Painter.frame`/`frameGraph`
+  now no-op once the device is lost and catch a synchronous GPU throw (e.g. `getCurrentTexture`
+  on a lost/unconfigured context), routing it to the runtime so the loop stops and `onDeviceLost`
+  fires — instead of an unhandled exception escaping the `requestAnimationFrame` callback.
 - **Clean fallback on a GPU too small for the glyph atlas.** If a device reports
   `maxTextureDimension2D < 2048` (below the 8192 WebGPU guarantees — a non-compliant or
   under-reporting adapter), creating the 2048² atlas used to crash with an uncaught validation
@@ -91,37 +92,25 @@ All notable changes to Kussetsu are documented here. This project adheres to
   weight/size combinations, or a large character set like CJK), further glyphs still render blank
   — but the renderer now emits a one-time `console.warn` explaining it, instead of silently
   dropping glyphs (a "never a mystery blank box" fix). A paging/eviction atlas is future work.
-- **GPU resources are released on teardown.** `createGpuRoot().destroy()` (and `<GpuCanvas>`
-  unmount) now calls a new `Painter.destroy()` that releases the `GPUDevice`, the ~16MB glyph
-  atlas, every texture/buffer, and clears the pipeline/glyph caches. Previously teardown freed
-  React/DOM but **nothing GPU-side**, so every mount→unmount cycle (every route change, and
-  React StrictMode's dev double-mount) leaked a whole device + atlas. (Road to 1.0 — robustness)
-- **A device lost mid-frame no longer throws out of the render loop.** `Painter.frame`/`frameGraph`
-  now no-op once the device is lost and catch a synchronous GPU throw (e.g. `getCurrentTexture`
-  on a lost/unconfigured context), routing it to the runtime so the loop stops and `onDeviceLost`
-  fires — instead of an unhandled exception escaping the `requestAnimationFrame` callback.
 - **compat: inline `letter-spacing` now maps** to the real `letterSpacing` Style field (the
   painter applies it as per-glyph tracking) instead of failing loud with a false "no target".
   The em-relative Tailwind `tracking-*` still refuses, but now points to the working field
-  rather than claiming there's no target. (#2)
+  rather than claiming there's no target.
 - **Glass `refraction` default unified to `0.09`** — `GLASS_DEFAULTS` disagreed with the
   documented per-node `GlassSpec` default and the `collectGlass` fallback (`0.1` vs `0.09`), so
-  enabling the global tuning / a default `setGlassOverride` subtly shifted the look. (#2)
+  enabling the global tuning / a default `setGlassOverride` subtly shifted the look.
 - **Published types are now a single bundled `dist/index.d.ts`** — the build bundles declarations
   (dts-bundle-generator) instead of emitting ~18 per-module `.d.ts`, so internal modules
-  (`webgpu`, `collect`, `runtime`, …) no longer ship in the npm tarball. (#2)
+  (`webgpu`, `collect`, `runtime`, …) no longer ship in the npm tarball.
+- **compat sources now type-check against `@babel/core@8`** — generating the published `.d.ts`
+  surfaced pre-existing type debt never caught before (`PluginObj`→`PluginObject`, the dropped
+  `jsxElement` `selfClosing` arg, an untyped visitor param). Build-time only; no runtime change.
 
 ### Changed
 
 - Core modules `layout.ts` / `collect.ts` / `yogaLayout.ts` now use explicit `.ts` extensions on
   their relative value-imports (matching `compat/` and `hostConfig.ts`), so they load under the
   Node test runner. No behavior or build change (Vite/tsc resolve `.ts` either way).
-
-### Docs
-
-- **Clarified `kussetsu/compat` is an in-repo recipe** (clone-and-run or vendor `src/compat/`),
-  not a published import — with a concrete `vite.config.ts` snippet. Publishing it as an
-  installable subpath is tracked as a future enhancement. (#2 / P1-15)
 
 ## [0.3.0] — 2026-06-22
 
