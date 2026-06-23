@@ -7,11 +7,13 @@
 // transforms, portals…). The failure mode is a compile error you read, not a blank box
 // you ship. It's a HEAD START for the supported subset, not "your app just works."
 //
-//   // vite.config.ts  (runs in-repo today; not yet a published `kussetsu/compat` subpath)
-//   import { kussetsuCompatVite } from "./src/compat";
+//   // vite.config.ts
+//   import { kussetsuCompatVite } from "kussetsu/compat";
 //   plugins: [kussetsuCompatVite(), react()]  // BEFORE react() — it runs an enforce:'pre' pass
 //
-// See COVERAGE.md (what maps / what's a renderer feature in disguise) and DESIGN.md.
+// This entry is BUILD-TIME (it imports @babel/core); the opt-in runtime resolver for dynamic
+// styles lives at the browser-safe subpath `kussetsu/compat/runtime` (no Babel). See COVERAGE.md
+// (what maps / what's a renderer feature in disguise) and DESIGN.md.
 
 export { default } from "./vite.ts";
 export { kussetsuCompatVite } from "./vite.ts";
@@ -23,5 +25,5 @@ export { tailwindToken, classNameToDecls } from "./tailwind.ts";
 export { mapTag } from "./tags.ts";
 export { parseColor, parseLength } from "./parse.ts";
 
-// Opt-in runtime resolver for dynamic styles (still fails loud, at render time):
-export { __kStyle, __kClass, __kMerge } from "./runtime.ts";
+// NB: the opt-in runtime resolver (__kStyle/__kClass/__kMerge) is NOT re-exported here — it ships
+// separately at `kussetsu/compat/runtime` so importing it into app code never pulls in @babel/core.

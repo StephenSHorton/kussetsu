@@ -21,7 +21,7 @@ interface Options {
   dynamic?: "error"; // 'runtime' (opt-in resolver) is the documented next increment
 }
 
-export default function kussetsuCompat({ types: t }: typeof Babel, _options: Options = {}): Babel.PluginObj {
+export default function kussetsuCompat({ types: t }: typeof Babel, _options: Options = {}): Babel.PluginObject {
   const valueToNode = (v: unknown): Babel.types.Expression => {
     if (v === null || v === undefined) return t.nullLiteral();
     if (typeof v === "number") return v < 0 ? t.unaryExpression("-", t.numericLiteral(-v)) : t.numericLiteral(v);
@@ -43,12 +43,12 @@ export default function kussetsuCompat({ types: t }: typeof Babel, _options: Opt
   };
 
   const textEl = (children: Babel.types.JSXElement["children"], style?: Babel.types.JSXAttribute[]): Babel.types.JSXElement =>
-    t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier("text"), style ?? [], false), t.jsxClosingElement(t.jsxIdentifier("text")), children, false);
+    t.jsxElement(t.jsxOpeningElement(t.jsxIdentifier("text"), style ?? [], false), t.jsxClosingElement(t.jsxIdentifier("text")), children);
 
   return {
     name: "kussetsu-compat",
     visitor: {
-      JSXElement(path) {
+      JSXElement(path: Babel.NodePath<Babel.types.JSXElement>) {
         const opening = path.node.openingElement;
         if (!t.isJSXIdentifier(opening.name)) return; // namespaced / member expression
         const tag = opening.name.name;

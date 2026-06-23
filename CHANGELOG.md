@@ -7,6 +7,20 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`kussetsu/compat` is now a published subpath** (was an in-repo recipe). Two entries:
+  `kussetsu/compat` — the build-time Vite plugin + raw Babel plugin + pure CSS→`Style` mappers
+  (`@babel/core` is an optional peer; `vite` too); and `kussetsu/compat/runtime` — the babel-free
+  browser runtime resolver (`__kStyle`/`__kClass`/`__kMerge`) for dynamic styles, so importing it
+  into app code never pulls in Babel. Built via `vite.compat.config.ts` with bundled `.d.ts` per
+  entry. The plugin's return type is a local `CompatVitePlugin` (structurally a Vite `Plugin`) so
+  the published types don't re-bundle vite's type graph. (Road to 1.0 — Pillar 4, non-freeze)
+
+### Fixed
+
+- **compat sources now type-check against `@babel/core@8`** — generating the published `.d.ts`
+  surfaced pre-existing type debt never caught before (`PluginObj`→`PluginObject`, the dropped
+  `jsxElement` `selfClosing` arg, an untyped visitor param). Build-time only; no runtime change.
+
 - **Export `ShadowSpec`** — the type of `Style.boxShadow` is now nameable by consumers (was
   usable inline but not importable).
 - **Broader consumer type-test coverage** (`test/types/consumer.tsx`) — now also guards the new

@@ -7,6 +7,16 @@
 // <view>/<text> SVG-intrinsic collision comes back), this file stops compiling.
 import { createGpuRoot, GpuCanvas, View, Text, rgba, useSpring, useFrame, useViewport, useGpuRoot } from "kussetsu";
 import type { GpuRoot, GpuControls, GpuRootOptions, Style, Size, RGBA, ParticleSpec, MaterialSpec, PostProcess, GlassSpec, ShadowSpec, SpringConfig, ViewProps, TextProps, ActivateEvent } from "kussetsu";
+// the compat on-ramp subpaths resolve + type-check from the built package
+import { kussetsuCompatVite, kussetsuCompatBabel, mapCssDeclarations } from "kussetsu/compat";
+import { __kStyle } from "kussetsu/compat/runtime";
+
+// the build-time plugin is structurally a Vite plugin (assignable to vite's Plugin) ...
+const vitePlugins: import("vite").PluginOption[] = [kussetsuCompatVite({ include: /\.tsx$/ })];
+void vitePlugins;
+void kussetsuCompatBabel; // ... the raw Babel plugin is exported for non-Vite setups ...
+void mapCssDeclarations; // ... and the pure CSS→Style mapper is reusable.
+void __kStyle; // browser runtime resolver lives at the babel-free /compat/runtime subpath
 
 // ── color helper ──────────────────────────────────────────────────────────────
 const indigo: RGBA = rgba("#5C5CFF");
