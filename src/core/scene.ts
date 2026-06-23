@@ -46,6 +46,7 @@ export interface Style {
   background?: RGBA;
   radius?: number;
   cornerSmoothing?: number; // 0 = round corners (default), 1 = squircle (superellipse)
+  boxShadow?: ShadowSpec; // a drop shadow painted BEHIND the box (one analytic blurred rounded-rect)
   border?: number; // border/stroke width in CSS px — a hairline outline on the box edge (scales with zoom).
   // Ignored on glass/material nodes (use the glass rim). A sub-pixel width still paints a crisp ~1px line.
   borderColor?: RGBA; // border color (default: a faint light hairline). Works without a background; note a
@@ -55,6 +56,16 @@ export interface Style {
   fontSize?: number;
   fontWeight?: number;
   letterSpacing?: number; // CSS px added between glyphs (tracking)
+}
+
+/** A drop shadow: an offset, blurred, optionally spread rounded-rect of `color` painted
+ *  behind the node (CSS `box-shadow`, outer only). All lengths are CSS px (scale with zoom). */
+export interface ShadowSpec {
+  x?: number; // horizontal offset (default 0)
+  y?: number; // vertical offset (default 0)
+  blur?: number; // blur radius (default 0 = a hard offset rect)
+  spread?: number; // grow (+) / shrink (−) the shadow box before blurring (default 0)
+  color?: RGBA; // default a soft black, [0, 0, 0, 0.25]
 }
 
 // A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop),

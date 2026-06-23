@@ -9,7 +9,7 @@
 //
 // Run: node test/collect.test.mjs   (Node >=23 strips TS types, resolves .ts imports)
 import { makeHarness, approx, approxArr, el, container, placed } from "./helpers.mjs";
-import { collectRects, collectTexts, collectSemantics, collectScrollRegions } from "../src/core/collect.ts";
+import { collectRects, collectShadows, collectTexts, collectSemantics, collectScrollRegions } from "../src/core/collect.ts";
 
 const { ok, done } = makeHarness();
 
@@ -200,6 +200,35 @@ const NOSCROLL = new Map();
   ok("plain view emits no SemNode", collectSemantics(node, ID, NOSCROLL).length === 0);
 }
 
+// ── collectShadows (box-shadow → screen-px shadow instances) ──────────────────
+{
+  // a node with a full boxShadow spec
+  const n = placed(el("view", { style: { radius: 8, boxShadow: { x: 2, y: 4, blur: 10, spread: 1, color: [0, 0, 0, 0.5] } } }), 30, 40, 100, 50);
+  const root = placed(el("view", {}, n), 0, 0, 300, 300);
+  const sh = collectShadows(root, ID, NOSCROLL);
+  ok("boxShadow emits one shadow", sh.length === 1, `got ${sh.length}`);
+  const s = sh[0];
+  ok("shadow box = node box (identity cam)", approx(s.x, 30) && approx(s.y, 40) && approx(s.w, 100) && approx(s.h, 50), JSON.stringify(s));
+  ok("shadow offset/blur/spread/radius carried", approx(s.ox, 2) && approx(s.oy, 4) && approx(s.blur, 10) && approx(s.spread, 1) && approx(s.radius, 8), JSON.stringify(s));
+  ok("shadow color carried", approxArr(s.color, [0, 0, 0, 0.5]), JSON.stringify(s.color));
+}
+// camera transform: box + all lengths scale; position translates
+{
+  const n = placed(el("view", { style: { radius: 6, boxShadow: { x: 3, y: 3, blur: 8, spread: 2 } } }), 10, 10, 40, 40);
+  const root = placed(el("view", {}, n), 0, 0, 300, 300);
+  const s = collectShadows(root, CAM, NOSCROLL)[0]; // scale 2, tx 10, ty 20
+  ok("shadow box camera-transformed", approx(s.x, 30) && approx(s.y, 40) && approx(s.w, 80) && approx(s.h, 80), JSON.stringify(s));
+  ok("shadow lengths scale with camera", approx(s.ox, 6) && approx(s.oy, 6) && approx(s.blur, 16) && approx(s.spread, 4) && approx(s.radius, 12), JSON.stringify(s));
+  ok("default shadow color is soft black", approxArr(s.color, [0, 0, 0, 0.25]), JSON.stringify(s.color));
+}
+// no boxShadow → no shadow; blur clamped to >= 0
+{
+  const plain = placed(el("view", { style: { background: [1, 1, 1, 1] } }), 0, 0, 10, 10);
+  ok("node without boxShadow emits no shadow", collectShadows(placed(el("view", {}, plain), 0, 0, 50, 50), ID, NOSCROLL).length === 0);
+  const neg = placed(el("view", { style: { boxShadow: { blur: -5 } } }), 0, 0, 10, 10);
+  ok("negative blur clamped to 0", collectShadows(placed(el("view", {}, neg), 0, 0, 50, 50), ID, NOSCROLL)[0].blur === 0);
+}
+
 // ── CRITICAL: hidden subtree exclusion (Suspense / Activity) ───────────────────
 // A node with .hidden = true (and its whole subtree) must be EXCLUDED from collectRects,
 // collectTexts AND collectSemantics. This locks the render-pipeline hidden behavior.
@@ -207,13 +236,13 @@ const NOSCROLL = new Map();
   // hidden subtree: a bg view containing a text + a role="button"
   const hiddenText = placed(el("text", {}, "secret"), 10, 10, 48, 16);
   const hiddenButton = placed(el("view", { role: "button" }, placed(el("text", {}, "Hidden btn"), 10, 30, 80, 16)), 10, 30, 80, 16);
-  const hidden = placed(el("view", { style: { background: [1, 0, 1, 1] } }, hiddenText, hiddenButton), 0, 0, 100, 100);
+  const hidden = placed(el("view", { style: { background: [1, 0, 1, 1], boxShadow: { blur: 8 } } }, hiddenText, hiddenButton), 0, 0, 100, 100);
   hidden.hidden = true;
 
   // a visible sibling so we can confirm collection still works around the hidden one
   const visibleText = placed(el("text", {}, "shown"), 0, 0, 40, 16);
   const visibleButton = placed(el("view", { role: "button" }, placed(el("text", {}, "Go"), 0, 0, 16, 16)), 0, 200, 30, 30);
-  const visibleBg = placed(el("view", { style: { background: [0, 1, 0, 1] } }, visibleText), 0, 0, 50, 50);
+  const visibleBg = placed(el("view", { style: { background: [0, 1, 0, 1], boxShadow: { blur: 4 } } }, visibleText), 0, 0, 50, 50);
 
   const root = placed(el("view", {}, hidden, visibleBg, visibleButton), 0, 0, 300, 300);
 
@@ -231,6 +260,9 @@ const NOSCROLL = new Map();
   const labels = sem.map((s) => s.label);
   ok("hidden role=button excluded from collectSemantics", !labels.includes("Hidden btn"), JSON.stringify(labels));
   ok("only the visible button survives in collectSemantics", sem.length === 1 && labels.includes("Go"), JSON.stringify(labels));
+
+  const shadows = collectShadows(root, ID, NOSCROLL);
+  ok("hidden subtree's boxShadow excluded; only the visible bg's shadow survives", shadows.length === 1 && approx(shadows[0].blur, 4), `got ${shadows.length} shadows`);
 }
 
 // (18b) When the focused node itself is hidden, collectRects still walks the root (root is

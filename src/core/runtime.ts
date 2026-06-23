@@ -13,6 +13,7 @@ import { ParticleSystem } from "./particles";
 import { SemanticsOverlay } from "./a11y";
 import {
   collectRects,
+  collectShadows,
   collectTexts,
   collectSemantics,
   collectGlass,
@@ -630,7 +631,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       particles,
       post: collectPostProcess(root, camera, scrollY), // a node's postProcess prop → effect masked to its box
       bgScroll: Math.max(0, ...scrollY.values()), // page scroll → the background shader scrolls with it
-    });
+    }, collectShadows(root, camera, scrollY)); // drawn behind all content + under glass
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
     // animated materials + particles drive a continuous repaint loop
     if (materialsPresent && materials.some((m) => m.animated)) container.dirty = true;

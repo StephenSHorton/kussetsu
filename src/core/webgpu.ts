@@ -21,6 +21,21 @@ export interface Rect {
   clip?: ClipRect;
 }
 
+// A drop shadow instance — all coords/lengths in SCREEN px (collectShadows applies the camera).
+export interface ShadowItem {
+  x: number; // node box (screen px)
+  y: number;
+  w: number;
+  h: number;
+  ox: number; // shadow offset
+  oy: number;
+  blur: number; // blur radius (>= 0)
+  spread: number; // grow/shrink the box before blur
+  radius: number; // node corner radius
+  color: RGBA;
+  clip?: ClipRect;
+}
+
 export interface TextItem {
   x: number;
   y: number;
@@ -175,6 +190,89 @@ fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
   // fill (inner) and border (ring) are spatially disjoint, so premultiplied colors just add.
   let rgb = in.color.rgb * fillA + in.borderCol.rgb * borderA;
   return vec4f(rgb * clip, (fillA + borderA) * clip);
+}
+`;
+
+// Drop shadow: one analytic gaussian-blurred rounded rectangle, drawn behind the content.
+// No multi-pass blur — the X dimension is integrated analytically (erf), the Y dimension with a
+// few samples (Evan Wallace's "Fast Rounded Rectangle Shadows"). Instances are SCREEN px
+// (collectShadows applies the camera), so the VS only maps screen px -> NDC.
+const SHADOW_WGSL = /* wgsl */ `
+struct VP { sizePad: vec4f, cam: vec4f };
+@group(0) @binding(0) var<uniform> vp: VP;
+struct VSOut {
+  @builtin(position) pos: vec4f,
+  @location(0) frag: vec2f,   // screen px
+  @location(1) lo: vec2f,     // shadow box lower (screen px)
+  @location(2) hi: vec2f,     // shadow box upper (screen px)
+  @location(3) sigma: f32,
+  @location(4) corner: f32,
+  @location(5) color: vec4f,
+  @location(6) clip: vec4f,
+};
+const QUAD = array<vec2f, 6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) box: vec4f, @location(1) sh: vec4f, @location(2) color: vec4f, @location(3) clip: vec4f, @location(4) extra: vec4f) -> VSOut {
+  let sigma = max(sh.z * 0.5, 0.0);                 // CSS blur -> gaussian sigma
+  let lo = vec2f(box.x + sh.x - sh.w, box.y + sh.y - sh.w);            // box offset by (ox,oy), grown by spread
+  let hi = vec2f(box.x + sh.x + box.z + sh.w, box.y + sh.y + box.w + sh.w);
+  let margin = sigma * 3.0 + 1.0;                   // quad must cover the blur falloff
+  let q = QUAD[vi];
+  let p0 = lo - vec2f(margin) ;
+  let span = (hi - lo) + vec2f(margin * 2.0);
+  let screenPx = p0 + q * span;
+  let size = vp.sizePad.xy;
+  let ndc = vec2f(screenPx.x / size.x * 2.0 - 1.0, -(screenPx.y / size.y * 2.0 - 1.0));
+  var o: VSOut;
+  o.pos = vec4f(ndc, 0, 1);
+  o.frag = screenPx;
+  o.lo = lo; o.hi = hi;
+  o.sigma = sigma;
+  let half = (hi - lo) * 0.5;
+  o.corner = clamp(extra.x + sh.w, 0.0, min(half.x, half.y));          // corner grows with spread
+  o.color = color; o.clip = clip;
+  return o;
+}
+fn erf2(x: vec2f) -> vec2f { let s = sign(x); let a = abs(x); var r = 1.0 + (0.278393 + (0.230389 + 0.078108 * (a * a)) * a) * a; r = r * r; return s - s / (r * r); }
+fn gaussian(x: f32, sigma: f32) -> f32 { return exp(-(x * x) / (2.0 * sigma * sigma)) / (2.5066282746310002 * sigma); }
+fn boxShadowX(x: f32, y: f32, sigma: f32, corner: f32, halfSize: vec2f) -> f32 {
+  let delta = min(halfSize.y - corner - abs(y), 0.0);
+  let curved = halfSize.x - corner + sqrt(max(0.0, corner * corner - delta * delta));
+  let integral = 0.5 + 0.5 * erf2((x + vec2f(-curved, curved)) * (0.7071067811865476 / sigma));
+  return integral.y - integral.x;
+}
+fn roundedBoxShadow(lo: vec2f, hi: vec2f, p0: vec2f, sigma: f32, corner: f32) -> f32 {
+  let center = (lo + hi) * 0.5;
+  let halfSize = (hi - lo) * 0.5;
+  let p = p0 - center;
+  let low = p.y - halfSize.y; let high = p.y + halfSize.y;
+  let start = clamp(-3.0 * sigma, low, high);
+  let end = clamp(3.0 * sigma, low, high);
+  let stepY = (end - start) / 4.0;
+  var y = start + stepY * 0.5;
+  var value = 0.0;
+  for (var i = 0; i < 4; i++) { value += boxShadowX(p.x, p.y - y, sigma, corner, halfSize) * gaussian(y, sigma) * stepY; y += stepY; }
+  return value;
+}
+fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p) - b + vec2f(r); return length(max(q, vec2f(0.0))) + min(max(q.x, q.y), 0.0) - r; }
+fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
+  if (clip.z <= 0.0) { return 1.0; }
+  let x1 = clip.x + clip.z; let y1 = clip.y + clip.w;
+  let ax = smoothstep(clip.x - 0.5, clip.x + 0.5, p.x) * (1.0 - smoothstep(x1 - 0.5, x1 + 0.5, p.x));
+  let ay = smoothstep(clip.y - 0.5, clip.y + 0.5, p.y) * (1.0 - smoothstep(y1 - 0.5, y1 + 0.5, p.y));
+  return ax * ay;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  // Both coverages are computed in UNIFORM control flow (fwidth is illegal inside a branch on a
+  // varying), then selected — sharp rounded-rect for ~no blur, the analytic gaussian otherwise.
+  let center = (in.lo + in.hi) * 0.5;
+  let halfSize = (in.hi - in.lo) * 0.5;
+  let d = sdRoundBox(in.frag - center, halfSize, in.corner);
+  let aa = max(fwidth(d), 1e-4);
+  let sharp = 1.0 - smoothstep(-aa, aa, d);
+  let blurred = clamp(roundedBoxShadow(in.lo, in.hi, in.frag, max(in.sigma, 0.5), in.corner), 0.0, 1.0); // max() keeps gaussian finite when unused
+  let a = select(blurred, sharp, in.sigma < 0.5);
+  let alpha = in.color.a * a * clipAlpha(in.frag, in.clip);
+  return vec4f(in.color.rgb * alpha, alpha);         // premultiplied
 }
 `;
 
@@ -442,6 +540,8 @@ struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
 // [x,y,w,h][radius,_,_,_][r,g,b,a][clipX,clipY,clipW,clipH]
 export const FLOATS_PER_RECT = 16;
 const RECT_STRIDE = FLOATS_PER_RECT * 4;
+const FLOATS_PER_SHADOW = 20; // box(4) + params(4) + color(4) + clip(4) + extra(4)
+const SHADOW_STRIDE = FLOATS_PER_SHADOW * 4;
 const clamp255 = (c: number) => Math.max(0, Math.min(255, Math.round(c * 255))); // 0..1 channel → 0..255 byte
 
 // Glyph atlas: glyphs are rasterized once at a BASE size (supersampled) and scaled
@@ -482,10 +582,12 @@ export class Painter {
   private canvas: HTMLCanvasElement;
 
   private rectPipeline!: GPURenderPipeline;
+  private shadowPipeline!: GPURenderPipeline;
   private blitPipeline!: GPURenderPipeline;
   private glassPipeline!: GPURenderPipeline;
   private vpBuffer!: GPUBuffer;
   private rectVpBindGroup!: GPUBindGroup;
+  private shadowVpBindGroup!: GPUBindGroup;
   private sampler!: GPUSampler;
 
   // Two backdrop textures: ping-pong so each glass panel refracts the accumulated
@@ -606,6 +708,30 @@ export class Painter {
       primitive: { topology: "triangle-list" },
     });
 
+    const shadowModule = device.createShaderModule({ code: SHADOW_WGSL });
+    this.shadowPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: shadowModule,
+        entryPoint: "vs",
+        buffers: [
+          {
+            arrayStride: SHADOW_STRIDE,
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x4" }, // box (x,y,w,h)
+              { shaderLocation: 1, offset: 16, format: "float32x4" }, // ox, oy, blur, spread
+              { shaderLocation: 2, offset: 32, format: "float32x4" }, // color
+              { shaderLocation: 3, offset: 48, format: "float32x4" }, // clip
+              { shaderLocation: 4, offset: 64, format: "float32x4" }, // extra: radius, _, _, _
+            ],
+          },
+        ],
+      },
+      fragment: { module: shadowModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
+      primitive: { topology: "triangle-list" },
+    });
+
     const blitModule = device.createShaderModule({ code: BLIT_WGSL });
     this.blitPipeline = device.createRenderPipeline({
       layout: "auto",
@@ -625,6 +751,10 @@ export class Painter {
     this.vpBuffer = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.rectVpBindGroup = device.createBindGroup({
       layout: this.rectPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }],
+    });
+    this.shadowVpBindGroup = device.createBindGroup({
+      layout: this.shadowPipeline.getBindGroupLayout(0),
       entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }],
     });
     this.sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
@@ -927,6 +1057,22 @@ export class Painter {
     return buf;
   }
 
+  private uploadShadows(shadows: ShadowItem[]): GPUBuffer | null {
+    if (!shadows.length) return null;
+    const buf = this.device.createBuffer({ size: shadows.length * SHADOW_STRIDE, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+    const data = new Float32Array(shadows.length * FLOATS_PER_SHADOW);
+    shadows.forEach((s, i) => {
+      const o = i * FLOATS_PER_SHADOW;
+      data[o] = s.x; data[o + 1] = s.y; data[o + 2] = s.w; data[o + 3] = s.h;
+      data[o + 4] = s.ox; data[o + 5] = s.oy; data[o + 6] = s.blur; data[o + 7] = s.spread;
+      data[o + 8] = s.color[0]; data[o + 9] = s.color[1]; data[o + 10] = s.color[2]; data[o + 11] = s.color[3];
+      if (s.clip) { data[o + 12] = s.clip[0]; data[o + 13] = s.clip[1]; data[o + 14] = s.clip[2]; data[o + 15] = s.clip[3]; }
+      data[o + 16] = s.radius; // extra.x
+    });
+    this.device.queue.writeBuffer(buf, 0, data);
+    return buf;
+  }
+
   private getMaterialPipeline(shader: string): GPURenderPipeline {
     let p = this.materialPipelines.get(shader);
     if (p) return p;
@@ -1047,16 +1193,16 @@ export class Painter {
   // Public frame entry: a no-op once the device is lost, and a synchronous GPU throw mid-frame
   // (device lost before the async device.lost handler fires) is caught and routed to
   // onDeviceError instead of escaping the render loop / rAF callback.
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo) {
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[]) {
     if (this.lost) return;
     try {
-      this.frameImpl(rects, texts, glass, fg, materials, info);
+      this.frameImpl(rects, texts, glass, fg, materials, info, shadows);
     } catch (e) {
       this.handleFrameError(e);
     }
   }
 
-  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo) {
+  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[]) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -1067,6 +1213,7 @@ export class Painter {
 
     const instanceBuffer = this.uploadRects(rects);
     const fgBuffer = fg ? this.uploadRects(fg.rects) : null;
+    const shadowBuffer = shadows && shadows.length ? this.uploadShadows(shadows) : null;
 
     const encoder = this.device.createCommandEncoder();
     const canvasView = this.context.getCurrentTexture().createView();
@@ -1100,6 +1247,13 @@ export class Painter {
     const p1 = encoder.beginRenderPass({
       colorAttachments: [{ view: this.backdropView!, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: this.bgShader ? "load" : "clear", storeOp: "store" }],
     });
+    if (shadowBuffer) {
+      // Shadows first → they sit BEHIND all PASS-1 content (and under glass, which composites later).
+      p1.setPipeline(this.shadowPipeline);
+      p1.setBindGroup(0, this.shadowVpBindGroup);
+      p1.setVertexBuffer(0, shadowBuffer);
+      p1.draw(6, shadows!.length);
+    }
     if (instanceBuffer) {
       p1.setPipeline(this.rectPipeline);
       p1.setBindGroup(0, this.rectVpBindGroup);
@@ -1149,6 +1303,7 @@ export class Painter {
     this.device.queue.submit([encoder.finish()]);
     instanceBuffer?.destroy();
     fgBuffer?.destroy();
+    shadowBuffer?.destroy();
     for (const b of this.pendingBuffers) b.destroy();
     this.pendingBuffers.length = 0;
   }

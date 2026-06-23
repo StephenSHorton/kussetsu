@@ -7,6 +7,12 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`boxShadow` Style field** — a GPU drop shadow painted behind the box:
+  `{ x?, y?, blur?, spread?, color? }` (CSS `box-shadow`, outer only). Rendered as one analytic
+  gaussian-blurred rounded rectangle (the erf technique — no multi-pass blur), in its own pass
+  behind all content (and under glass). Respects `radius`, the camera (pan/zoom), overflow clip,
+  and the Suspense hidden-node exclusion. The `kussetsu/compat` layer doesn't map CSS
+  `box-shadow` yet (use the native field) — a separate follow-up. (Road to 1.0 — Pillar 3)
 - **`margin` Style field** — space *outside* the box, with the same shape as `padding`:
   `margin` (all sides), `marginX` / `marginY`, and per-side `marginTop` / `marginRight` /
   `marginBottom` / `marginLeft` (Yoga `setMargin`, same All < axis < per-side specificity).
