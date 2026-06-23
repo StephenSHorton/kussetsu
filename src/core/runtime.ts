@@ -683,13 +683,20 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   // no auto-recovery, so the app should prompt a reload. Reason "destroyed" is our own teardown,
   // not a loss, so skip it.
   let torndown = false;
-  painter.device.lost.then((info) => {
-    if (torndown || info.reason === "destroyed") return;
+  const haltOnDeviceLoss = (info: { reason: string; message: string }) => {
+    if (torndown || stopped) return; // already tearing down / already halted
     stopped = true;
     cancelAnimationFrame(rafId);
     clearTimeout(timerId);
-    opts.onDeviceLost?.({ reason: String(info.reason), message: info.message });
+    opts.onDeviceLost?.(info);
+  };
+  painter.device.lost.then((info) => {
+    if (info.reason === "destroyed") return; // our own painter.destroy(), not a real loss
+    haltOnDeviceLoss({ reason: String(info.reason), message: info.message });
   });
+  // A synchronous GPU throw mid-frame (device lost before the async device.lost resolves) is
+  // caught in Painter.frame and routed here, so the loop stops + the app is notified either way.
+  painter.onDeviceError = haltOnDeviceLoss;
   if (opts.onError) {
     painter.device.addEventListener("uncapturederror", (e) => {
       opts.onError!((e as GPUUncapturedErrorEvent).error);
@@ -780,6 +787,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       reactRoot.unmount();
       a11yHost.remove();
       editInput.remove();
+      painter.destroy(); // release the GPUDevice + glyph atlas + all textures/buffers/pipelines
     },
   };
 

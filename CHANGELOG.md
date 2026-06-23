@@ -16,11 +16,39 @@ All notable changes to Kussetsu are documented here. This project adheres to
   transforms, focus ring, clip, and **hidden-subtree exclusion** across rects/texts/semantics).
   (Road to 1.0 — Pillar 2)
 
+### Fixed
+
+- **GPU resources are released on teardown.** `createGpuRoot().destroy()` (and `<GpuCanvas>`
+  unmount) now calls a new `Painter.destroy()` that releases the `GPUDevice`, the ~16MB glyph
+  atlas, every texture/buffer, and clears the pipeline/glyph caches. Previously teardown freed
+  React/DOM but **nothing GPU-side**, so every mount→unmount cycle (every route change, and
+  React StrictMode's dev double-mount) leaked a whole device + atlas. (Road to 1.0 — robustness)
+- **A device lost mid-frame no longer throws out of the render loop.** `Painter.frame`/`frameGraph`
+  now no-op once the device is lost and catch a synchronous GPU throw (e.g. `getCurrentTexture`
+  on a lost/unconfigured context), routing it to the runtime so the loop stops and `onDeviceLost`
+  fires — instead of an unhandled exception escaping the `requestAnimationFrame` callback.
+- **compat: inline `letter-spacing` now maps** to the real `letterSpacing` Style field (the
+  painter applies it as per-glyph tracking) instead of failing loud with a false "no target".
+  The em-relative Tailwind `tracking-*` still refuses, but now points to the working field
+  rather than claiming there's no target. (#2)
+- **Glass `refraction` default unified to `0.09`** — `GLASS_DEFAULTS` disagreed with the
+  documented per-node `GlassSpec` default and the `collectGlass` fallback (`0.1` vs `0.09`), so
+  enabling the global tuning / a default `setGlassOverride` subtly shifted the look. (#2)
+- **Published types are now a single bundled `dist/index.d.ts`** — the build bundles declarations
+  (dts-bundle-generator) instead of emitting ~18 per-module `.d.ts`, so internal modules
+  (`webgpu`, `collect`, `runtime`, …) no longer ship in the npm tarball. (#2)
+
 ### Changed
 
 - Core modules `layout.ts` / `collect.ts` / `yogaLayout.ts` now use explicit `.ts` extensions on
   their relative value-imports (matching `compat/` and `hostConfig.ts`), so they load under the
   Node test runner. No behavior or build change (Vite/tsc resolve `.ts` either way).
+
+### Docs
+
+- **Clarified `kussetsu/compat` is an in-repo recipe** (clone-and-run or vendor `src/compat/`),
+  not a published import — with a concrete `vite.config.ts` snippet. Publishing it as an
+  installable subpath is tracked as a future enhancement. (#2 / P1-15)
 
 ## [0.3.0] — 2026-06-22
 

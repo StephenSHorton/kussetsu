@@ -209,7 +209,7 @@ export function tailwindToken(token: string): TwResult {
     case "rounded": return { decls: [["border-radius", RADIUS[tail] ?? sp(tail)]] };
     case "font": return FONT_WEIGHT[tail] ? { decls: [["font-weight", FONT_WEIGHT[tail]]] } : { error: `${P} unknown font utility '${t}'.` };
     case "leading": return { error: `${P} leading-* (line-height) isn't controllable yet. ('${t}')` };
-    case "tracking": return { error: `${P} tracking-* (letter-spacing) has no target. ('${t}')` };
+    case "tracking": return { error: `${P} tracking-* is em-relative (needs font-size to resolve) — set the native letterSpacing (px) Style field, or use inline letter-spacing. ('${t}')` };
     case "z": return { decls: [["z-index", tail]] }; // → fails in mapCss
     case "top": return num(tail, (n) => [["top", sp(n)]], t);
     case "left": return num(tail, (n) => [["left", sp(n)]], t);

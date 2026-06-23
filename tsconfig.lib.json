@@ -1,11 +1,7 @@
 {
+  // Type-checks the published library surface (src/core only — examples/compat are out of scope).
+  // No emit: the JS comes from `vite build`, and a single bundled dist/index.d.ts is produced by
+  // dts-bundle-generator (so internal per-module .d.ts don't ship in the tarball).
   "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "noEmit": false,
-    "declaration": true,
-    "emitDeclarationOnly": true,
-    "outDir": "dist",
-    "rootDir": "src/core"
-  },
   "include": ["src/core"]
 }
