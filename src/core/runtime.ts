@@ -14,6 +14,7 @@ import { SemanticsOverlay } from "./a11y";
 import {
   collectRects,
   collectShadows,
+  collectOpacityGroups,
   collectTexts,
   collectSemantics,
   collectGlass,
@@ -631,7 +632,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       particles,
       post: collectPostProcess(root, camera, scrollY), // a node's postProcess prop → effect masked to its box
       bgScroll: Math.max(0, ...scrollY.values()), // page scroll → the background shader scrolls with it
-    }, collectShadows(root, camera, scrollY)); // drawn behind all content + under glass
+    }, collectShadows(root, camera, scrollY), collectOpacityGroups(root, camera, scrollY)); // shadows behind; opacity groups composited offscreen
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
     // animated materials + particles drive a continuous repaint loop
     if (materialsPresent && materials.some((m) => m.animated)) container.dirty = true;

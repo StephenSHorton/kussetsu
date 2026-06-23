@@ -7,6 +7,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **`opacity` Style field — true group opacity** (`0..1`). A node with `opacity < 1` and its whole
+  subtree fade as **one unit**: the subtree renders at full alpha into an offscreen texture, then
+  composites onto the scene scaled by the opacity — so overlapping children don't double-darken
+  (the CSS-correct behavior, not a per-node alpha multiply). Faded content stays interactive
+  (semantics/hit-test ignore opacity). v1 limitations (documented): glass/material inside a group
+  render unfaded, nested opacity composites independently (not multiplied), and a faded element's
+  `boxShadow` isn't faded with it. (Road to 1.0 — Pillar 3, completes the box-model trio)
 - **`boxShadow` Style field** — a GPU drop shadow painted behind the box:
   `{ x?, y?, blur?, spread?, color? }` (CSS `box-shadow`, outer only). Rendered as one analytic
   gaussian-blurred rounded rectangle (the erf technique — no multi-pass blur), in its own pass

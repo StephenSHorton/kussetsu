@@ -21,6 +21,15 @@ export interface Rect {
   clip?: ClipRect;
 }
 
+// A group-opacity batch: a subtree lifted to render offscreen, then composited at `opacity`.
+// rects/texts are screen-px (camera applied), rendered at FULL alpha into the scratch texture so
+// overlapping children composite correctly; `opacity` is applied once at the composite.
+export interface OpacityGroup {
+  opacity: number; // 0..1
+  rects: Rect[];
+  texts: TextItem[];
+}
+
 // A drop shadow instance — all coords/lengths in SCREEN px (collectShadows applies the camera).
 export interface ShadowItem {
   x: number; // node box (screen px)
@@ -288,6 +297,23 @@ struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
   return o;
 }
 @fragment fn fs(in: VSOut) -> @location(0) vec4f { return textureSample(tex, samp, in.uv); }
+`;
+
+// Composite an offscreen (premultiplied) texture over the target, scaled by a uniform alpha.
+// Used for GROUP OPACITY: a subtree renders at full alpha into a scratch texture, then this
+// fades the whole result by `u.x` (premultiplied → scaling the vec4 is correct) with PREMUL blend.
+const ALPHA_BLIT_WGSL = /* wgsl */ `
+@group(0) @binding(0) var samp: sampler;
+@group(0) @binding(1) var tex: texture_2d<f32>;
+@group(0) @binding(2) var<uniform> u: vec4f; // u.x = group opacity
+struct VSOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> VSOut {
+  var p = array<vec2f,3>(vec2f(-1,-1), vec2f(3,-1), vec2f(-1,3));
+  var o: VSOut; o.pos = vec4f(p[vi],0,1);
+  o.uv = vec2f((p[vi].x+1.0)*0.5, (1.0-p[vi].y)*0.5);
+  return o;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f { return textureSample(tex, samp, in.uv) * u.x; }
 `;
 
 // Refractive glass: samples the backdrop in SCREEN space, bends it at the rim.
@@ -584,6 +610,9 @@ export class Painter {
   private rectPipeline!: GPURenderPipeline;
   private shadowPipeline!: GPURenderPipeline;
   private blitPipeline!: GPURenderPipeline;
+  private alphaBlitPipeline!: GPURenderPipeline; // composite an offscreen subtree at a group opacity
+  private opacityTex: GPUTexture | null = null; // reused full-screen scratch for group-opacity batches
+  private opacityView: GPUTextureView | null = null;
   private glassPipeline!: GPURenderPipeline;
   private vpBuffer!: GPUBuffer;
   private rectVpBindGroup!: GPUBindGroup;
@@ -740,6 +769,14 @@ export class Painter {
       primitive: { topology: "triangle-list" },
     });
 
+    const alphaBlitModule = device.createShaderModule({ code: ALPHA_BLIT_WGSL });
+    this.alphaBlitPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: { module: alphaBlitModule, entryPoint: "vs" },
+      fragment: { module: alphaBlitModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
+      primitive: { topology: "triangle-list" },
+    });
+
     const glassModule = device.createShaderModule({ code: GLASS_WGSL });
     this.glassPipeline = device.createRenderPipeline({
       layout: "auto",
@@ -888,6 +925,9 @@ export class Painter {
     this.sceneTex?.destroy();
     this.sceneTex = make();
     this.sceneView = this.sceneTex.createView();
+    this.opacityTex?.destroy();
+    this.opacityTex = make(); // full-screen scratch reused by each group-opacity batch
+    this.opacityView = this.opacityTex.createView();
     const bw = (this.brightW = Math.max(1, Math.floor(w / 4)));
     const bh = (this.brightH = Math.max(1, Math.floor(h / 4)));
     this.brightTex?.destroy();
@@ -1193,16 +1233,16 @@ export class Painter {
   // Public frame entry: a no-op once the device is lost, and a synchronous GPU throw mid-frame
   // (device lost before the async device.lost handler fires) is caught and routed to
   // onDeviceError instead of escaping the render loop / rAF callback.
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[]) {
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[]) {
     if (this.lost) return;
     try {
-      this.frameImpl(rects, texts, glass, fg, materials, info, shadows);
+      this.frameImpl(rects, texts, glass, fg, materials, info, shadows, opacityGroups);
     } catch (e) {
       this.handleFrameError(e);
     }
   }
 
-  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[]) {
+  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[]) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -1262,6 +1302,38 @@ export class Painter {
     }
     this.drawGlyphs(p1, texts); // Gap B: per-glyph atlas instances
     p1.end();
+
+    // PASS 1.5 — GROUP OPACITY: each faded subtree renders at FULL alpha into a scratch texture
+    // (so its internal overlaps composite correctly), then composites onto the backdrop scaled by
+    // the group's opacity. Done here so groups sit over PASS-1 content and glass still refracts them.
+    if (opacityGroups && opacityGroups.length) {
+      for (const g of opacityGroups) {
+        const gBuf = this.uploadRects(g.rects);
+        const gp = encoder.beginRenderPass({ colorAttachments: [{ view: this.opacityView!, clearValue: { r: 0, g: 0, b: 0, a: 0 }, loadOp: "clear", storeOp: "store" }] });
+        if (gBuf) {
+          gp.setPipeline(this.rectPipeline);
+          gp.setBindGroup(0, this.rectVpBindGroup);
+          gp.setVertexBuffer(0, gBuf);
+          gp.draw(6, g.rects.length);
+        }
+        this.drawGlyphs(gp, g.texts);
+        gp.end();
+        if (gBuf) this.pendingBuffers.push(gBuf);
+        // composite the scratch onto the backdrop, faded by the group opacity (per-group uniform)
+        const ub = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.device.queue.writeBuffer(ub, 0, new Float32Array([g.opacity, 0, 0, 0]));
+        this.pendingBuffers.push(ub);
+        const bg = this.device.createBindGroup({
+          layout: this.alphaBlitPipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: this.sampler }, { binding: 1, resource: this.opacityView! }, { binding: 2, resource: { buffer: ub } }],
+        });
+        const cp = encoder.beginRenderPass({ colorAttachments: [{ view: this.backdropView!, loadOp: "load", storeOp: "store" }] });
+        cp.setPipeline(this.alphaBlitPipeline);
+        cp.setBindGroup(0, bg);
+        cp.draw(3);
+        cp.end();
+      }
+    }
 
     // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass) -> finalView.
     this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr, finalView);
@@ -1381,6 +1453,7 @@ export class Painter {
     this.backdropTex?.destroy();
     this.backdropTex2?.destroy();
     this.sceneTex?.destroy();
+    this.opacityTex?.destroy();
     this.brightTex?.destroy();
     for (const b of [this.vpBuffer, this.bgBuffer, this.bloomExtractU, this.bloomCompositeU, this.nodeBuffer]) b?.destroy();
     for (const b of this.glassBuffers) b.destroy();

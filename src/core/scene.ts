@@ -47,6 +47,8 @@ export interface Style {
   radius?: number;
   cornerSmoothing?: number; // 0 = round corners (default), 1 = squircle (superellipse)
   boxShadow?: ShadowSpec; // a drop shadow painted BEHIND the box (one analytic blurred rounded-rect)
+  opacity?: number; // 0..1 GROUP opacity — the node + its whole subtree fade as ONE unit (composited
+  // offscreen, so overlapping children don't double-darken). Default 1 (opaque). < 1 forms a group.
   border?: number; // border/stroke width in CSS px — a hairline outline on the box edge (scales with zoom).
   // Ignored on glass/material nodes (use the glass rim). A sub-pixel width still paints a crisp ~1px line.
   borderColor?: RGBA; // border color (default: a faint light hairline). Works without a background; note a

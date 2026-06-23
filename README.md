@@ -138,7 +138,9 @@ and `gap` has `rowGap` / `columnGap`. Sizes (`width` / `height` / `minWidth` / `
 + `borderColor` (RGBA) draw a hairline/outline that follows the `radius` / `cornerSmoothing`
 corners and works with or without a `background`. `boxShadow` (`{ x?, y?, blur?, spread?, color? }`)
 paints a soft drop shadow behind the box — one analytic gaussian-blurred rounded rect on the GPU,
-no blur pass (CSS `box-shadow`, outer only).
+no blur pass (CSS `box-shadow`, outer only). `opacity` (0..1) fades a node **and its whole subtree
+as one group** — composited offscreen, so overlapping children don't double-darken (true CSS group
+opacity, not a per-node alpha).
 
 The `GpuRoot` exposes imperative escapes too: `getCamera()` / `setCamera({ tx?, ty?, scale? })`
 / `resetCamera()` to drive pan-zoom, `hitTest(x, y)` (the node id at a canvas point),
