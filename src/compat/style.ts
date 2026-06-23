@@ -254,6 +254,16 @@ export function mapCssDeclarations(decls: Array<[string, string | number | null]
     if (!SYSTEM_FONT.test(String(get("font-family"))))
       fail("font-family", `${P} font-family is fixed to the system-ui stack — '${get("font-family")}' can't be honored (needs a font pipeline).`);
   }
+  if (has("letter-spacing")) {
+    // Real target: the painter applies `letterSpacing` as per-glyph tracking (see collect.ts).
+    const v = String(get("letter-spacing"));
+    if (v === "normal") style.letterSpacing = 0;
+    else {
+      const px = parseLength(get("letter-spacing") as never);
+      if (px != null) style.letterSpacing = px;
+      else fail("letter-spacing", `${P} letter-spacing must be a px/rem length (or 'normal').`);
+    }
+  }
 
   // ── things with a real, named renderer gap → always loud ────────────────────
   const NO_TARGET: Record<string, string> = {
@@ -272,7 +282,6 @@ export function mapCssDeclarations(decls: Array<[string, string | number | null]
     opacity: "opacity has no per-subtree multiply — fold alpha into background/color, or it needs a group-opacity feature",
     "line-height": "line-height isn't controllable yet (text uses the font's measured metrics)",
     "text-align": "text-align has no target — align text via a wrapping container's justify/align",
-    "letter-spacing": "letter-spacing has no target (glyph atlas has fixed advances)",
     "text-decoration": "text-decoration (underline/strike) has no GPU target yet",
     "text-decoration-line": "text-decoration has no GPU target yet",
     "text-overflow": "text-overflow/ellipsis has no target yet",

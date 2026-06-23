@@ -16,6 +16,22 @@ All notable changes to Kussetsu are documented here. This project adheres to
   now no-op once the device is lost and catch a synchronous GPU throw (e.g. `getCurrentTexture`
   on a lost/unconfigured context), routing it to the runtime so the loop stops and `onDeviceLost`
   fires — instead of an unhandled exception escaping the `requestAnimationFrame` callback.
+- **compat: inline `letter-spacing` now maps** to the real `letterSpacing` Style field (the
+  painter applies it as per-glyph tracking) instead of failing loud with a false "no target".
+  The em-relative Tailwind `tracking-*` still refuses, but now points to the working field
+  rather than claiming there's no target. (#2)
+- **Glass `refraction` default unified to `0.09`** — `GLASS_DEFAULTS` disagreed with the
+  documented per-node `GlassSpec` default and the `collectGlass` fallback (`0.1` vs `0.09`), so
+  enabling the global tuning / a default `setGlassOverride` subtly shifted the look. (#2)
+- **Published types are now a single bundled `dist/index.d.ts`** — the build bundles declarations
+  (dts-bundle-generator) instead of emitting ~18 per-module `.d.ts`, so internal modules
+  (`webgpu`, `collect`, `runtime`, …) no longer ship in the npm tarball. (#2)
+
+### Docs
+
+- **Clarified `kussetsu/compat` is an in-repo recipe** (clone-and-run or vendor `src/compat/`),
+  not a published import — with a concrete `vite.config.ts` snippet. Publishing it as an
+  installable subpath is tracked as a future enhancement. (#2 / P1-15)
 
 ## [0.3.0] — 2026-06-22
 

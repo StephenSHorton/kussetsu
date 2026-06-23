@@ -39,6 +39,8 @@ const good = [
   ["arbitrary value", `<div className="w-[37px] bg-[#ff0000]" />`, ["width: 37", "background: [1, 0, 0, 1]"]],
   ["coexistence: view passes through", `<div><view glass={g}><text>native</text></view></div>`, ["<view glass={g}>", "<text>native</text>"]],
   ["p → paragraph", `<p className="text-sm">x</p>`, ["<text", `role="paragraph"`, "fontSize: 14"]],
+  ["inline letter-spacing maps (real letterSpacing field)", `<div style={{ letterSpacing: 2 }}>x</div>`, ["letterSpacing: 2"]],
+  ["letter-spacing px string maps", `<div style={{ letterSpacing: "-0.5px" }}>x</div>`, ["letterSpacing: -0.5"]],
 ];
 console.log("GOOD (transform + assert):");
 for (const [name, code, needles] of good) {
