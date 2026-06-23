@@ -49,6 +49,10 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Fixed
 
+- **Glyph-atlas overflow now fails loud.** When the 2048² atlas fills (too many distinct
+  weight/size combinations, or a large character set like CJK), further glyphs still render blank
+  — but the renderer now emits a one-time `console.warn` explaining it, instead of silently
+  dropping glyphs (a "never a mystery blank box" fix). A paging/eviction atlas is future work.
 - **GPU resources are released on teardown.** `createGpuRoot().destroy()` (and `<GpuCanvas>`
   unmount) now calls a new `Painter.destroy()` that releases the `GPUDevice`, the ~16MB glyph
   atlas, every texture/buffer, and clears the pipeline/glyph caches. Previously teardown freed
