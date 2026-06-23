@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # >= 23: native TS type-stripping so `node test/compat.test.mjs` can import the .ts source
           cache: npm
       - run: npm ci
       - run: npm test # compat mapper + consumer type-check (test/types — guards the View/Text typings)

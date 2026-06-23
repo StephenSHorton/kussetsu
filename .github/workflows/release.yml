@@ -22,10 +22,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24 # >= 23: strips TS types so `npm test` can import the .ts compat source; ships npm 11
           cache: npm
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest # trusted publishing needs npm >= 11.5.1 (Node 20 ships older)
+      - run: npm install -g npm@latest # belt-and-suspenders: trusted publishing needs npm >= 11.5.1
       - run: npm ci
       - run: npm test # gate: compat mapper + consumer type-check (also builds the lib)
       - run: npm publish # OIDC trusted publishing — no token; prepublishOnly rebuilds dist; provenance auto
