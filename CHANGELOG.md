@@ -5,7 +5,15 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
-### Added
+### Changed
+
+- **Text is now crisp at any zoom (single-channel SDF glyph atlas).** Glyphs are stored as a signed
+  distance field instead of raster coverage, and the shader recovers the edge with a
+  screen-space-derivative `smoothstep` — so text stays sharp when the pan/zoom camera magnifies it
+  past the atlas base size (previously it softened/bilinear-blurred). No API change; UI-mode text
+  (no camera zoom) looks the same. The SDF is generated with an exact Euclidean distance transform
+  (Felzenszwalb & Huttenlocher, after mapbox/tiny-sdf) from the rasterized glyph, once per cached
+  glyph. (Road to 1.0 — Pillar 3, feature win)
 
 - **`zIndex` — overlay / stacking layer.** `style.zIndex` (a number) lifts a node + its subtree to an
   **overlay layer** painted above all normal content, with overlays sorted ascending by `zIndex`

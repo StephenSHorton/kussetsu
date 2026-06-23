@@ -329,8 +329,8 @@ renderer with a real published-library shape, not a finished framework. Known ca
   build also emits declarations with `skipLibCheck` because the react-reconciler typings
   aren't fully validated — keep `skipLibCheck: true` (the Vite / Next / CRA default).
 - **Text is browser-shaped.** LTR only — bidi / complex-script (RTL, Arabic, Indic)
-  caret + selection is out of scope, and the glyph atlas softens past its base size
-  (no MSDF yet, so it isn't crisp at *arbitrary* zoom).
+  caret + selection is out of scope. Glyphs are stored as a single-channel **SDF**, so text
+  stays crisp at any zoom (the pan/zoom camera can magnify it without softening).
 - A thousand CSS edge cases are intentionally unsupported; `kussetsu/compat` refuses
   them loudly rather than approximating.
 

@@ -165,7 +165,13 @@ fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
   return ax * ay;
 }
 @fragment fn fs(in: VSOut) -> @location(0) vec4f {
-  let cov = textureSample(atlas, samp, in.uv).a;
+  // The atlas stores a single-channel signed distance field (0.5 = glyph edge), so coverage is
+  // recovered with a screen-space-derivative smoothstep — crisp at ANY zoom (the SDF interpolates
+  // linearly; fwidth narrows the AA band as you zoom in, widens it as you zoom out). fwidth() is
+  // called in uniform control flow here (top of fs), so it's always well-defined.
+  let d = textureSample(atlas, samp, in.uv).r;
+  let aa = max(fwidth(d), 1e-4);
+  let cov = smoothstep(0.5 - aa, 0.5 + aa, d);
   let a = cov * in.color.a * clipAlpha(in.screenPos, in.clip);
   return vec4f(in.color.rgb * a, a);
 }
@@ -668,13 +674,72 @@ const clamp255 = (c: number) => Math.max(0, Math.min(255, Math.round(c * 255)));
 // per display size. Crisp for UI text; only soft when zoomed past BASE.
 const GLYPH_BASE = 44; // CSS px the atlas glyph is measured at
 const GLYPH_SS = 2; // atlas supersample
-const GLYPH_PAD = 2; // CSS px padding around each glyph cell (overhang)
+const GLYPH_PAD = 4; // CSS px padding around each glyph cell — also the SDF spread room (overhang)
+const SDF_SPREAD = GLYPH_PAD * GLYPH_SS; // SDF encodes a half-range of ±SDF_SPREAD/2 atlas px (the
+// byte saturates at ±spread/2 around the edge); kept ≤ the GLYPH_PAD padding so the field never truncates.
 // Rasterization base for a given DISPLAY size. Small text shares the 44px atlas entry (cheap);
 // large text (big headings) gets its OWN higher-res entry, bucketed to 32px steps, so it isn't
 // the 44px sprite upscaled ~5× (which softens/pixelates). Capped at 256 so a few huge glyphs
 // can't blow the shared atlas budget.
 function glyphBaseFor(size: number): number {
   return size <= GLYPH_BASE ? GLYPH_BASE : Math.min(256, Math.ceil(size / 32) * 32);
+}
+
+// Single-channel signed-distance-field generation (after mapbox/tiny-sdf, ISC). Turns a rasterized
+// coverage-alpha glyph into an SDF so text stays crisp at ANY zoom: the exact Euclidean distance
+// transform (Felzenszwalb & Huttenlocher) gives each texel its distance to the glyph edge, encoded
+// so 0.5 = edge, >0.5 inside, <0.5 outside. The shader recovers a sharp edge via smoothstep(fwidth).
+const SDF_INF = 1e20;
+function edt1d(grid: Float64Array, offset: number, stride: number, length: number, f: Float64Array, v: Int16Array, z: Float64Array) {
+  v[0] = 0;
+  z[0] = -SDF_INF;
+  z[1] = SDF_INF;
+  f[0] = grid[offset];
+  for (let q = 1, k = 0, s = 0; q < length; q++) {
+    f[q] = grid[offset + q * stride];
+    const q2 = q * q;
+    do {
+      const r = v[k];
+      s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2;
+    } while (s <= z[k] && --k > -1);
+    k++;
+    v[k] = q;
+    z[k] = s;
+    z[k + 1] = SDF_INF;
+  }
+  for (let q = 0, k = 0; q < length; q++) {
+    while (z[k + 1] < q) k++;
+    const r = v[k];
+    const dq = q - r;
+    grid[offset + q * stride] = f[r] + dq * dq;
+  }
+}
+function edt(grid: Float64Array, w: number, h: number, f: Float64Array, v: Int16Array, z: Float64Array) {
+  for (let x = 0; x < w; x++) edt1d(grid, x, w, h, f, v, z);
+  for (let y = 0; y < h; y++) edt1d(grid, y * w, 1, w, f, v, z);
+}
+// rgba = canvas pixels (alpha = coverage). Returns one SDF byte per texel (edge ≈ 128).
+function glyphSDF(rgba: Uint8ClampedArray, w: number, h: number, spread: number): Uint8Array {
+  const size = w * h;
+  const outer = new Float64Array(size);
+  const inner = new Float64Array(size);
+  for (let i = 0; i < size; i++) {
+    const a = rgba[i * 4 + 3] / 255; // coverage of this texel
+    outer[i] = a === 1 ? 0 : a === 0 ? SDF_INF : Math.max(0, 0.5 - a) ** 2;
+    inner[i] = a === 1 ? SDF_INF : a === 0 ? 0 : Math.max(0, a - 0.5) ** 2;
+  }
+  const len = Math.max(w, h);
+  const f = new Float64Array(len);
+  const z = new Float64Array(len + 1);
+  const v = new Int16Array(len);
+  edt(outer, w, h, f, v, z);
+  edt(inner, w, h, f, v, z);
+  const out = new Uint8Array(size);
+  for (let i = 0; i < size; i++) {
+    const d = Math.sqrt(outer[i]) - Math.sqrt(inner[i]); // signed px distance: + outside, − inside
+    out[i] = Math.max(0, Math.min(255, Math.round(255 - 255 * (d / spread + 0.5)))); // edge → ~128 (0.5)
+  }
+  return out;
 }
 // One shared atlas for every (weight, glyph) pair. A real multi-weight UI burns through
 // the 1024² budget fast — each weight is a distinct entry — and overflow glyphs render
@@ -1027,8 +1092,9 @@ export class Painter {
     });
     this.atlasTex = device.createTexture({
       size: [ATLAS_SIZE, ATLAS_SIZE],
-      format: "rgba8unorm",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
+      format: "r8unorm", // single channel — the atlas only carries the SDF (¼ the VRAM of rgba8). The
+      // shader samples `.r`. No RENDER_ATTACHMENT: glyphs upload via writeTexture, never render-to-atlas.
+      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     this.atlasBindGroup = device.createBindGroup({
       layout: this.glyphPipeline.getBindGroupLayout(0),
@@ -1234,7 +1300,11 @@ export class Painter {
     o.fillStyle = "#fff"; // white alpha mask; tinted per-instance in the shader
     o.textBaseline = "alphabetic";
     o.fillText(char, GLYPH_PAD, Math.round(base * 0.98));
-    this.device.queue.copyExternalImageToTexture({ source: off, flipY: false }, { texture: this.atlasTex, origin: { x: px, y: py }, premultipliedAlpha: true }, [aw, ah]);
+    // Convert the rasterized coverage to an SDF and upload that (one byte/texel → the alpha channel),
+    // so the glyph stays crisp at any zoom (see GLYPH_WGSL.fs). writeTexture (not copyExternalImage)
+    // because we're uploading a computed byte buffer, not the canvas pixels.
+    const sdf = glyphSDF(o.getImageData(0, 0, aw, ah).data, aw, ah, SDF_SPREAD);
+    this.device.queue.writeTexture({ texture: this.atlasTex, origin: { x: px, y: py } }, sdf, { bytesPerRow: aw, rowsPerImage: ah }, [aw, ah]);
     const entry: GlyphEntry = { u0: px / ATLAS_SIZE, v0: py / ATLAS_SIZE, u1: (px + aw) / ATLAS_SIZE, v1: (py + ah) / ATLAS_SIZE, cellW, cellH, advance };
     this.glyphCache.set(key, entry);
     return entry;
