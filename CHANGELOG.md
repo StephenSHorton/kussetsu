@@ -5,6 +5,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-06-24
+
+**Real vector-rendered SVG** (`<Svg>` — analytic fills, strokes, gradients, scanline banding), **zoom
+controls**, **occluding glass**, and a set of glass/layout fixes. **Backward compatible** — one subtle
+default change (clear glass; see Changed). The API is still deliberately unfrozen — more additive 0.x
+releases may land before 1.0.
+
 ### Added
 
 - **Zoom controls** — imperative camera-zoom helpers on the root + `useGpuRoot()`: **`zoomIn()`** /
@@ -43,6 +50,25 @@ All notable changes to Kussetsu are documented here. This project adheres to
     axis-aligned box), `reflect`/`repeat` spread, patterns, `stroke-dasharray`, and
     filters/masks/clipPaths/`<use>`/`<text>`. Like images, a vector inside an `opacity` group isn't
     group-faded.
+
+- **Occluding glass** — a glass node's `style.background` now composites over the refracted backdrop at
+  its own alpha, so a near-opaque background makes the glass *occlude* what's behind it (a frosted **and**
+  opaque modal/sheet). Distinct from the glass `tint` (a subtle hue wash); `bg.a = 0` is pure glass.
+
+### Changed
+
+- **Glass is clear by default.** `GLASS_DEFAULTS.tint` now defaults to **0** (was 0.05) and `specular` to
+  **0.02** (was 0.05), so glass surfaces start clear instead of faintly milky; a frosted look is opt-in
+  via `tint` + `tintColor`. Existing glass with no explicit `tint` will look slightly clearer.
+
+### Fixed
+
+- **Text on a glass surface is now refracted by an overlapping glass panel.** It was promoted above all
+  glass (so a higher panel couldn't sample it); the foreground is now interleaved into the glass
+  composite, so a panel refracts a lower panel's text while still not refracting its own.
+- **`overflow: "scroll"` / `"hidden"` nodes are bounded to their flex slot.** A `grow: 1` scroll child no
+  longer over-grows to its content height and pushes a trailing fixed-height sibling off-screen (Yoga's
+  default `flexShrink` is 0, unlike CSS's 1 — overflow nodes now default to shrink 1 + `min-height: 0`).
 
 ## [0.5.0] — 2026-06-23
 
