@@ -15,6 +15,7 @@ import {
   collectRects,
   collectShadows,
   collectImages,
+  collectVectors,
   collectOverlays,
   collectOpacityGroups,
   collectTexts,
@@ -145,6 +146,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   // repaint so the frame that already drew the (invalid) pipeline recovers.
   painter.onInvalidate = () => { container.dirty = true; };
   painter.onImageLoaded = () => { container.dirty = true; }; // repaint when an async image finishes loading
+  painter.onVectorLoaded = () => { container.dirty = true; }; // repaint when an async SVG vector finishes loading
 
   // Dev-mode diagnostics for the two silent first-run footguns: a 0-sized canvas paints
   // nothing (we size the framebuffer from the canvas's CSS box), and a non-positioned
@@ -639,7 +641,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       particles,
       post: collectPostProcess(root, camera, scrollY), // a node's postProcess prop → effect masked to its box
       bgScroll: Math.max(0, ...scrollY.values()), // page scroll → the background shader scrolls with it
-    }, collectShadows(root, camera, scrollY), collectOpacityGroups(root, camera, scrollY), collectImages(root, camera, scrollY), collectOverlays(root, focusedId, camera, scrollY)); // shadows behind; opacity offscreen; images under glass; overlays (zIndex) on top
+    }, collectShadows(root, camera, scrollY), collectOpacityGroups(root, camera, scrollY), collectImages(root, camera, scrollY), collectOverlays(root, focusedId, camera, scrollY), collectVectors(root, camera, scrollY)); // shadows behind; opacity offscreen; images+vectors under glass; overlays (zIndex) on top
     overlay.syncFromScene(collectSemantics(root, camera, scrollY));
     // animated materials + particles drive a continuous repaint loop
     if (materialsPresent && materials.some((m) => m.animated)) container.dirty = true;

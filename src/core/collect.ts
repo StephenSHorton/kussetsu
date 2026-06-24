@@ -3,7 +3,7 @@
 // Pre-order = parents before children (paint order) and reading order (AT).
 import { type Camera, type ElementNode, type RGBA, firstText, textOf } from "./scene.ts";
 import type { ParticleSpec } from "./particles";
-import type { ClipRect, GlassPanel, ImageItem, MaterialPanel, OpacityGroup, Overlay, Rect, ShadowItem, TextItem } from "./webgpu";
+import type { ClipRect, GlassPanel, ImageItem, MaterialPanel, OpacityGroup, Overlay, Rect, ShadowItem, TextItem, VectorItem } from "./webgpu";
 import type { SemNode } from "./a11y";
 import { measureWidth, selectionRects } from "./text.ts";
 import type { GlassParams } from "./glassTuning";
@@ -121,6 +121,34 @@ export function collectImages(root: ElementNode, cam: Camera, scroll: ScrollMap)
     for (const c of n.children) if (c.kind === "element" && !c.hidden && zOf(c) == null) walk(c, childClip, childSy);
   };
   walk(root, undefined, 0);
+  return out;
+}
+
+/** SVG vectors (props.svg) → flat list, camera + scroll + clip applied (screen px). The painter loads
+ *  + parses + uploads the SVG per `src` and fills it ANALYTICALLY (crisp at any zoom). Drawn on the
+ *  backdrop alongside images. zIndex subtrees are skipped here (lifted to the overlay layer via
+ *  collectOverlays, like images). `rootClip`/`rootSy` let collectOverlays reuse this to gather a lifted
+ *  overlay subtree's vectors. (Like images, vectors inside an `opacity` group aren't faded — a documented
+ *  limitation shared with the image pipeline.) */
+export function collectVectors(root: ElementNode, cam: Camera, scroll: ScrollMap, rootClip?: ClipRect, rootSy = 0): VectorItem[] {
+  const out: VectorItem[] = [];
+  const walk = (n: ElementNode, clip: ClipRect | undefined, sy: number) => {
+    const s = n.props.style ?? {};
+    const x = n.x * cam.scale + cam.tx;
+    const y = (n.y - sy) * cam.scale + cam.ty;
+    const w = n.w * cam.scale;
+    const h = n.h * cam.scale;
+    if (n.props.svg) out.push({ x, y, w, h, src: n.props.svg, clip });
+    let childClip = clip;
+    let childSy = sy;
+    if (s.overflow) {
+      const own: ClipRect = [x, y, w, h];
+      childClip = clip ? intersect(clip, own) : own;
+      if (s.overflow === "scroll") childSy = sy + (scroll.get(n.id) ?? 0);
+    }
+    for (const c of n.children) if (c.kind === "element" && !c.hidden && zOf(c) == null) walk(c, childClip, childSy);
+  };
+  walk(root, rootClip, rootSy);
   return out;
 }
 
@@ -252,6 +280,7 @@ export function collectOverlays(root: ElementNode, focusedId: number | null, cam
           shadows: collectShadows(c, cam, scroll),
           rects: collectRects(c, focusedId, cam, scroll, undefined, 0, false),
           images: collectImages(c, cam, scroll),
+          vectors: collectVectors(c, cam, scroll),
           texts: collectTexts(c, cam, scroll, undefined, 0, false),
         });
       }

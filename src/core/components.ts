@@ -25,6 +25,9 @@ export type TextProps = NodeProps;
 /** Props for `<Image>` — a `View` plus the image `src` (+ `fit`); see {@link ImageSpec}. */
 export type ImageProps = Omit<NodeProps, "image"> & { src: string; fit?: ImageSpec["fit"] };
 
+/** Props for `<Svg>` — a `View` plus the SVG `src` (rendered as real vectors). */
+export type SvgProps = Omit<NodeProps, "svg"> & { src: string };
+
 /** A box. The GPU-painted equivalent of a `<div>` — flex layout, glass, material, etc. */
 export const View = "view" as unknown as FC<ViewProps>;
 
@@ -34,3 +37,7 @@ export const Text = "text" as unknown as FC<TextProps>;
 /** An image (icon / avatar / photo / logo). Sugar for `<View image={{ src, fit }} />`; takes the
  *  same `style` (so `radius` rounds it, `width`/`height` size it). */
 export const Image: FC<ImageProps> = ({ src, fit, ...rest }) => createElement("view", { ...rest, image: { src, fit } });
+
+/** An SVG rendered as REAL vectors (analytic GPU fills — crisp at any zoom). Sugar for
+ *  `<View svg={src} />`; sized by `style` width/height (the viewBox is fit, preserving aspect). */
+export const Svg: FC<SvgProps> = ({ src, ...rest }) => createElement("view", { ...rest, svg: src });
