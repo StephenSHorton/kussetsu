@@ -43,6 +43,10 @@ import type { Camera, Container, ElementNode } from "./scene";
 export interface GpuRootOptions {
   /** Pan by dragging empty space + zoom on the wheel. Default true. */
   camera?: boolean;
+  /** Min / max camera zoom (scale), applied to the wheel, the zoom helpers, and `setCamera`.
+   *  Defaults: `minZoom` 0.35, `maxZoom` 3. */
+  minZoom?: number;
+  maxZoom?: number;
   /** Wheel scrolls the whole page vertically (clamped to content). Default false. */
   pageScroll?: boolean;
   /** Make ALL text drag-selectable + copyable (Cmd/Ctrl+C), like a normal page. Default false. */
@@ -74,10 +78,17 @@ export interface GpuRoot {
   requestRender(): void;
   /** The live pan/zoom camera (a copy — mutate via `setCamera`). */
   getCamera(): Camera;
-  /** Pan/zoom the view. Partial — pass just `{ scale }` or `{ tx, ty }`. Repaints. */
+  /** Pan/zoom the view. Partial — pass just `{ scale }` or `{ tx, ty }`. `scale` is clamped to
+   *  [minZoom, maxZoom]. Repaints. */
   setCamera(camera: Partial<Camera>): void;
   /** Recenter + reset zoom to the identity transform. */
   resetCamera(): void;
+  /** Zoom to an absolute scale (clamped to [minZoom, maxZoom]) keeping `anchor` (canvas CSS px) fixed —
+   *  defaults to the viewport center. Repaints. */
+  zoomTo(scale: number, anchor?: { x: number; y: number }): void;
+  /** Step the zoom in / out about the viewport center (clamped). Repaints. */
+  zoomIn(): void;
+  zoomOut(): void;
   /** Re-measure the canvas + repaint (the `ResizeObserver` does this automatically;
    *  call it after a synchronous layout change you know the observer will miss). */
   resize(): void;
@@ -177,6 +188,31 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
   host.appendChild(a11yHost);
 
   const camera: Camera = { tx: 0, ty: 0, scale: 1 };
+  // Zoom limits + helpers. zoomAbout keeps the anchor (canvas CSS px) fixed while scaling — the same
+  // math the wheel uses — so a button/keyboard zoom doesn't make the view jump.
+  const minZoom = options.minZoom ?? 0.35;
+  const maxZoom = options.maxZoom ?? 3;
+  const ZOOM_STEP = 1.25;
+  const clampScale = (s: number) => (Number.isFinite(s) ? Math.min(maxZoom, Math.max(minZoom, s)) : camera.scale); // ignore NaN/∞
+  const zoomAbout = (targetScale: number, ax: number, ay: number) => {
+    const ns = clampScale(targetScale);
+    const wx = (ax - camera.tx) / camera.scale;
+    const wy = (ay - camera.ty) / camera.scale;
+    camera.tx = ax - wx * ns;
+    camera.ty = ay - wy * ns;
+    camera.scale = ns;
+    container.dirty = true;
+  };
+  const zoomTo = (scale: number, anchor?: { x: number; y: number }) =>
+    zoomAbout(scale, anchor?.x ?? canvas.clientWidth / 2, anchor?.y ?? canvas.clientHeight / 2);
+  const zoomIn = () => zoomTo(camera.scale * ZOOM_STEP);
+  const zoomOut = () => zoomTo(camera.scale / ZOOM_STEP);
+  const resetCam = () => {
+    camera.tx = 0;
+    camera.ty = 0;
+    camera.scale = 1;
+    container.dirty = true;
+  };
   const scrollY = new Map<number, number>(); // node.id -> scroll offset (world px)
   let scrollRegions: ScrollRegion[] = []; // refreshed each frame for wheel routing
   let selection: Selection | null = null;
@@ -510,13 +546,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       return;
     }
     if (!opts.camera) return; // an app shouldn't zoom; only its lists scroll
-    const ns = Math.min(3, Math.max(0.35, camera.scale * Math.exp(-e.deltaY * 0.0015)));
-    const wx = (ox - camera.tx) / camera.scale;
-    const wy = (oy - camera.ty) / camera.scale;
-    camera.tx = ox - wx * ns;
-    camera.ty = oy - wy * ns;
-    camera.scale = ns;
-    container.dirty = true;
+    zoomAbout(camera.scale * Math.exp(-e.deltaY * 0.0015), ox, oy); // zoom toward the cursor, clamped
   };
   // All on `host` (not `canvas`) so they also catch presses on the a11y proxies layered over the
   // canvas — otherwise a drag that begins on a button/nav/CTA never reaches us and won't scroll.
@@ -537,6 +567,17 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     navigator.clipboard?.writeText(text).catch(() => {});
   };
   window.addEventListener("keydown", onCopy);
+
+  // Cmd/Ctrl + =/+ zoom in · −/_ zoom out · 0 reset — only when the pan/zoom camera is enabled and not
+  // editing a field. preventDefault stops the browser's own page zoom. Zooms about the viewport center.
+  const onKeyZoom = (e: KeyboardEvent) => {
+    if (!opts.camera || !(e.metaKey || e.ctrlKey) || editingId != null) return;
+    const k = e.key;
+    if (k === "=" || k === "+") { e.preventDefault(); zoomIn(); }
+    else if (k === "-" || k === "_") { e.preventDefault(); zoomOut(); }
+    else if (k === "0") { e.preventDefault(); resetCam(); }
+  };
+  window.addEventListener("keydown", onKeyZoom);
 
   const rootElement = (): ElementNode | null =>
     (container.children.find((c) => c.kind === "element") as ElementNode | undefined) ?? null;
@@ -752,15 +793,13 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
     setCamera(next) {
       if (next.tx != null) camera.tx = next.tx;
       if (next.ty != null) camera.ty = next.ty;
-      if (next.scale != null) camera.scale = next.scale;
+      if (next.scale != null) camera.scale = clampScale(next.scale);
       container.dirty = true;
     },
-    resetCamera() {
-      camera.tx = 0;
-      camera.ty = 0;
-      camera.scale = 1;
-      container.dirty = true;
-    },
+    resetCamera: resetCam,
+    zoomTo,
+    zoomIn,
+    zoomOut,
     resize() {
       container.dirty = true; // renderFrame re-reads the canvas size via painter.size()
     },
@@ -809,6 +848,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       host.removeEventListener("pointercancel", endPan);
       host.removeEventListener("wheel", onWheel);
       window.removeEventListener("keydown", onCopy);
+      window.removeEventListener("keydown", onKeyZoom);
       frameCallbacks.clear();
       viewportSubs.clear();
       reactRoot.unmount();

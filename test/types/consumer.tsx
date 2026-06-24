@@ -100,6 +100,8 @@ function App() {
 // the full options bag is nameable + every flag type-checks (GpuRootOptions is exported)
 const opts: GpuRootOptions = {
   camera: false,
+  minZoom: 0.25,
+  maxZoom: 8,
   pageScroll: true,
   textSelectable: true,
   background: "fn material(uv: vec2f, px: vec2f) -> vec4f { return vec4f(uv, 0.0, 1.0); }",
@@ -119,6 +121,10 @@ async function boot() {
   root.setCamera({ scale: cam.scale * 1.5 });
   root.setCamera({ tx: 0, ty: 0 });
   root.resetCamera();
+  root.zoomIn();
+  root.zoomOut();
+  root.zoomTo(2);
+  root.zoomTo(2, { x: 100, y: 80 }); // zoom about a point
   root.resize();
   root.requestRender();
   root.frame(); // low-level: paint one frame now
@@ -139,6 +145,9 @@ function Animated() {
   const { width, height } = useViewport(); // { width, height } in css px
   const root: GpuControls = useGpuRoot(); // imperative controls (GpuControls)
   root.setGlassOverride({ tint: 0.1 }); // root-scoped glass override is reachable from a component
+  root.zoomIn(); // zoom controls reachable from a component (e.g. a +/− button's onActivate)
+  root.zoomOut();
+  root.zoomTo(1.5);
   useFrame((dt: number) => {
     root.setCamera({ scale: 1 + Math.sin(dt) * 0 }); // dt is seconds since last frame
   });

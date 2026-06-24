@@ -7,6 +7,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ### Added
 
+- **Zoom controls** — imperative camera-zoom helpers on the root + `useGpuRoot()`: **`zoomIn()`** /
+  **`zoomOut()`** (step about the viewport center) and **`zoomTo(scale, anchor?)`** (absolute, keeping
+  `anchor` — canvas CSS px, default center — fixed). All clamp to the zoom limits, so a +/− button or
+  programmatic zoom doesn't make the view jump. New **`minZoom`** / **`maxZoom`** `GpuRootOptions`
+  (default 0.35–3) now bound the wheel, the helpers, **and** `setCamera` (whose `scale` was previously
+  unclamped). **Keyboard** (when `camera` is on): `Cmd/Ctrl` + `=`/`+` zoom in, `-` zoom out, `0` reset.
+
 - **Real vector-rendered SVG** — `<Svg src="…" />` (or the `svg` prop on any node) renders an SVG as
   true analytic GPU fills that stay **crisp at any zoom**, not a rasterized texture. Implemented with the
   Slug per-pixel analytic-coverage technique (Lengyel, JCGT 2017; algorithm public-domain as of
