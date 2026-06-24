@@ -5,7 +5,7 @@
 //
 // Verified against yoga-layout@3.2.1: default import is ready synchronously
 // (the module top-level-awaits the WASM); enums are named exports.
-import Yoga, { Align, Direction, Edge, FlexDirection, Gutter, Justify, MeasureMode, PositionType, Wrap } from "yoga-layout";
+import Yoga, { Align, Direction, Edge, FlexDirection, Gutter, Justify, MeasureMode, Overflow, PositionType, Wrap } from "yoga-layout";
 import type { Node as YogaNode } from "yoga-layout";
 import { type ElementNode, type Size, type Style, textOf } from "./scene.ts";
 import { measureText } from "./layout.ts";
@@ -85,6 +85,18 @@ function applyStyle(yn: YogaNode, s: Style = {}): void {
   setSize(s.maxHeight, (n) => yn.setMaxHeight(n), (n) => yn.setMaxHeightPercent(n));
   if (typeof s.grow === "number") yn.setFlexGrow(s.grow);
   if (typeof s.shrink === "number") yn.setFlexShrink(s.shrink);
+
+  // overflow:scroll/hidden = a CLIPPING box → it must be bounded by its flex slot, not expand to its
+  // (overflowing) content. Yoga's default flexShrink is 0 (CSS's is 1), so a grow:1 scroll child with an
+  // auto basis otherwise resolves to its content height, can't shrink, over-grows its box, and shoves
+  // trailing fixed siblings off-viewport (also defeating the clip + scroll, which key off the box height).
+  // Default shrink→1 and min-height→0 for overflow nodes (the CSS min-height:auto fix too), but only when
+  // the author hasn't set them — `shrink: 0` stays an explicit escape hatch for an unbounded box.
+  if (s.overflow) {
+    yn.setOverflow(s.overflow === "hidden" ? Overflow.Hidden : Overflow.Scroll);
+    if (s.shrink == null) yn.setFlexShrink(1);
+    if (s.minHeight == null) yn.setMinHeight(0);
+  }
 
   if (s.absolute) {
     yn.setPositionType(PositionType.Absolute);
