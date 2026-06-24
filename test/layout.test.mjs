@@ -259,4 +259,35 @@ const VH = 800;
   ok("measureText height ignores text length", measureText("x", { fontSize: 16 }).h === m4.h, "height should not depend on length");
 }
 
+// ── #41: grow:1 + overflow:scroll child is bounded by its slot, not its content ──────
+// (Yoga's default flexShrink is 0; an overflow node now defaults shrink→1 so its tall content
+//  doesn't over-grow the box and shove a trailing fixed sibling off-viewport.)
+{
+  const header = box(1000, 56);
+  const content = box(1000, 2000); // tall content inside the scroll region
+  const middle = el("view", { style: { width: 1000, grow: 1, overflow: "scroll" } }, content);
+  const footer = box(1000, 62);
+  const root = el("view", { style: { direction: "column" } }, header, middle, footer);
+  layoutWithYoga(root, 1000, 600);
+  rect("#41 header at top", header, 0, 0, 1000, 56);
+  rect("#41 scroll middle bounded to grow slot", middle, 0, 56, 1000, 482); // 600 - 56 - 62
+  rect("#41 footer stays in viewport", footer, 0, 538, 1000, 62);
+  ok("#41 footer within viewport", footer.y + footer.h <= 600, `footer bottom=${footer.y + footer.h}`);
+}
+// regression: changing overflow nodes' shrink must NOT globally shrink fixed-height boxes
+{
+  const a = box(1000, 300), b = box(1000, 300), c = box(1000, 300);
+  const root = el("view", { style: { direction: "column" } }, a, b, c);
+  layoutWithYoga(root, 1000, 600);
+  ok("#41 regression: fixed boxes keep height (no global shrink)", approx(a.h, 300) && approx(b.h, 300) && approx(c.h, 300), `got ${a.h},${b.h},${c.h}`);
+}
+// escape hatch: explicit shrink:0 keeps an overflow box unbounded
+{
+  const content = box(1000, 2000);
+  const middle = el("view", { style: { width: 1000, grow: 1, overflow: "scroll", shrink: 0 } }, content);
+  const root = el("view", { style: { direction: "column" } }, box(1000, 56), middle, box(1000, 62));
+  layoutWithYoga(root, 1000, 600);
+  ok("#41 shrink:0 escape hatch keeps box unbounded", approx(middle.h, 2000), `got middle.h=${middle.h}`);
+}
+
 process.exit(done("layout (yoga + measureText)"));
