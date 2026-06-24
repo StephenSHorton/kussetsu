@@ -73,15 +73,17 @@ export interface ShadowSpec {
   color?: RGBA; // default a soft black, [0, 0, 0, 0.25]
 }
 
-// A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop),
-// not as a flat background rect.
+// A node with props.glass is painted as REFRACTIVE GLASS (samples the backdrop). Its `style.background`
+// is over-composited on top of the refraction AT ITS ALPHA — so a near-opaque background makes the glass
+// OCCLUDE its backdrop (a frosted *and* opaque modal), while no/transparent background is pure glass.
+// (This is distinct from the glass `tint`, which is a subtle hue wash of the material.)
 export interface GlassSpec {
   refraction?: number; // default 0.09 — fraction of panel size the rim bends
   blur?: number; // default 0 — backdrop blur radius, CSS px
-  tint?: number; // default 0.05 — mix toward tintColor
+  tint?: number; // default 0 — mix toward tintColor (clear glass by default; tint is opt-in)
   tintColor?: RGBA; // default cool white
   rim?: number; // default 16 — rim band width, CSS px
-  specular?: number; // default 0.05 — highlight/glint intensity
+  specular?: number; // default 0.02 — highlight/glint intensity
   dispersion?: number; // default 0.025 — chromatic rim split (the colorful edge)
 }
 
@@ -168,6 +170,9 @@ export interface NodeProps {
   particles?: import("./particles").ParticleSpec;
   /** Draw an image inside this node's box (clipped to `style.radius`). See {@link ImageSpec}. */
   image?: ImageSpec;
+  /** Render an SVG as REAL vectors (analytic GPU fills — crisp at any zoom), fit into this node's box.
+   *  The value is the SVG source (URL / data URI). Use `<Svg src="…" />`. v1: fills only (no strokes). */
+  svg?: string;
   /** Apply a full-screen post effect, masked to this node's box. See {@link PostProcess}. */
   postProcess?: PostProcess;
   children?: ReactNode;

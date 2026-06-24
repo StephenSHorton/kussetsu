@@ -5,6 +5,7 @@
 //      it, anywhere on screen, because we own the whole framebuffer.
 import type { RGBA } from "./scene";
 import { charAdvance } from "./text";
+import { parseSvgDocument, flattenVectorDoc, type VectorPathMeta } from "./svg.ts";
 
 export type ClipRect = [number, number, number, number]; // x,y,w,h screen px; w<=0 => no clip
 
@@ -37,6 +38,7 @@ export interface Overlay {
   shadows: ShadowItem[];
   rects: Rect[];
   images: ImageItem[];
+  vectors: VectorItem[];
   texts: TextItem[];
 }
 
@@ -79,6 +81,27 @@ interface ImageEntry {
 }
 const IMAGE_CACHE_MAX = 64; // evict least-recently-used image textures beyond this (bounds VRAM)
 
+// A vector (SVG) draw: the node's box in SCREEN px (collectVectors applied the camera), the source
+// (cache key), and clip. The painter loads/parses/uploads the SVG per `src` and fills it analytically.
+export interface VectorItem {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  src: string;
+  clip?: ClipRect;
+}
+interface VectorEntry {
+  curveBuffer: GPUBuffer | null;
+  bindGroup: GPUBindGroup | null; // vp + this asset's curve buffer
+  paths: VectorPathMeta[]; // per-path metadata (curveStart/Count, fill, evenOdd, lbox in viewBox space)
+  viewBox: [number, number, number, number];
+  loading: boolean;
+  failed: boolean;
+  tick: number;
+}
+const VECTOR_CACHE_MAX = 48; // evict least-recently-used vector assets beyond this
+
 export interface TextItem {
   x: number;
   y: number;
@@ -104,6 +127,7 @@ export interface GlassPanel {
   brighten: number; // overall lightening (1 = none)
   specular: number; // highlight/glint intensity (0 = none)
   dispersion: number; // chromatic split at the rim (0 = none) — the colorful edge
+  background: RGBA; // style.background, over-composited at its alpha to occlude the backdrop ([0,0,0,0] = pure glass)
 }
 
 // A node filled by a CUSTOM WGSL fragment shader (props.material). The shader source
@@ -241,6 +265,89 @@ const PREMUL_BLEND: GPUBlendState = {
   color: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
   alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
+
+// Analytic vector fill — resolution-independent (crisp at ANY zoom). Slug-style per-pixel winding
+// from quadratic outlines (Lengyel, JCGT 2017; algorithm public-domain 2026-03). One instanced quad
+// per SVG path covers its bbox; the fragment loops ALL the path's quadratics (UNBANDED — O(quads) per
+// pixel; flattenVectorDoc caps per-path quads so a dense path can't stall the GPU; scanline banding is
+// the planned Phase-1.5 lift) in the shared `curves`
+// storage buffer and accumulates SIGNED ANTIALIASED coverage by firing a +x and +y ray and classifying
+// each curve's crossings via the `0x2E74` sign-bit table (robust at shared endpoints — no sparkle/
+// dropouts). nonzero = clamp(|sum|) (winding-direction-agnostic); even-odd folds. `m = 1/fwidth` makes
+// the coverage ramp exactly one screen pixel wide at any scale → the analytic crispness.
+const VECTOR_WGSL = /* wgsl */ `
+struct VP { size: vec2f };
+@group(0) @binding(0) var<uniform> vp: VP;
+@group(0) @binding(1) var<storage, read> curves: array<vec2f>; // per quad: p0, control, p1
+struct VSOut {
+  @builtin(position) pos: vec4f,
+  @location(0) local: vec2f,              // fragment position in PATH (viewBox) space
+  @location(1) color: vec4f,
+  @location(2) @interpolate(flat) range: vec2u,   // curveStart, curveCount (in quads)
+  @location(3) @interpolate(flat) evenOdd: u32,
+  @location(4) clip: vec4f,
+  @location(5) screenPos: vec2f,
+};
+const QV = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) lrect: vec4f, @location(2) color: vec4f, @location(3) idata: vec4u, @location(4) clip: vec4f) -> VSOut {
+  let q = QV[vi];
+  let px = rect.xy + q*rect.zw;
+  let ndc = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
+  var o: VSOut;
+  o.pos = vec4f(ndc,0,1);
+  o.local = lrect.xy + q*lrect.zw;   // path-space coord at this fragment
+  o.color = color; o.range = idata.xy; o.evenOdd = idata.z; o.clip = clip; o.screenPos = px;
+  return o;
+}
+fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
+  if (clip.z <= 0.0) { return 1.0; }
+  let x1 = clip.x + clip.z; let y1 = clip.y + clip.w;
+  let ax = smoothstep(clip.x - 0.5, clip.x + 0.5, p.x) * (1.0 - smoothstep(x1 - 0.5, x1 + 0.5, p.x));
+  let ay = smoothstep(clip.y - 0.5, clip.y + 0.5, p.y) * (1.0 - smoothstep(y1 - 0.5, y1 + 0.5, p.y));
+  return ax * ay;
+}
+// signed antialiased coverage of one quadratic for a +x ray from the origin. p0,p1,p2 are the control
+// points already made RELATIVE to the fragment; m = pixels per unit (1/fwidth) for the ±0.5px ramp.
+fn cov1(p0: vec2f, p1: vec2f, p2: vec2f, m: f32) -> f32 {
+  var shift = 0u;
+  if (p0.y > 0.0) { shift = shift + 2u; }
+  if (p1.y > 0.0) { shift = shift + 4u; }
+  if (p2.y > 0.0) { shift = shift + 8u; }
+  let code = (0x2E74u >> shift) & 3u; // bit0 → +root1, bit1 → −root2
+  if (code == 0u) { return 0.0; }
+  let ax = p0.x - 2.0*p1.x + p2.x; let bx = p0.x - p1.x; let cx = p0.x;
+  let ay = p0.y - 2.0*p1.y + p2.y; let by = p0.y - p1.y; let cy = p0.y;
+  var t1 = 0.0; var t2 = 0.0;
+  if (abs(ay) < 1e-4) {        // ~linear in y → single root, used by both bits
+    t1 = cy / (2.0*by); t2 = t1;
+  } else {
+    let d = sqrt(max(by*by - ay*cy, 0.0));
+    t1 = (by - d)/ay; t2 = (by + d)/ay;
+  }
+  var f = 0.0;
+  if ((code & 1u) != 0u) { let x = (ax*t1 - 2.0*bx)*t1 + cx; f = f + clamp(m*x + 0.5, 0.0, 1.0); }
+  if ((code & 2u) != 0u) { let x = (ax*t2 - 2.0*bx)*t2 + cx; f = f - clamp(m*x + 0.5, 0.0, 1.0); }
+  return f;
+}
+@fragment fn fs(in: VSOut) -> @location(0) vec4f {
+  let p = in.local;
+  let inv = 1.0 / fwidth(p);  // pixels per path-unit per axis (uniform control flow)
+  var h = 0.0; var v = 0.0;
+  let start = in.range.x; let count = in.range.y;
+  for (var i = 0u; i < count; i = i + 1u) {
+    let b = (start + i) * 3u;
+    let a0 = curves[b] - p; let a1 = curves[b+1u] - p; let a2 = curves[b+2u] - p;
+    h = h + cov1(a0, a1, a2, inv.x);
+    // +y ray: rotate the relative points 90° (x,y)→(y,-x) and reuse the +x coverage code
+    v = v + cov1(vec2f(a0.y, -a0.x), vec2f(a1.y, -a1.x), vec2f(a2.y, -a2.x), inv.y);
+  }
+  let sum = (h + v) * 0.5;
+  var cov = clamp(abs(sum), 0.0, 1.0);                       // nonzero (winding-direction agnostic)
+  if (in.evenOdd != 0u) { cov = 1.0 - abs(1.0 - fract(sum * 0.5) * 2.0); } // even-odd parity fold
+  let alpha = cov * in.color.a * clipAlpha(in.screenPos, in.clip);
+  return vec4f(in.color.rgb * alpha, alpha); // premultiplied
+}
+`;
 
 const RECT_WGSL = /* wgsl */ `
 // sizePad.xy = viewport CSS px; cam.xy = translate, cam.z = scale.
@@ -425,6 +532,7 @@ struct GU {
   tint: vec4f,   // rgba
   misc: vec4f,   // dpr, radius, brighten, specular
   params2: vec4f,// dispersion, _, _, _
+  bg: vec4f,     // panel background rgba (straight alpha) — over-composited to occlude the backdrop
 };
 @group(0) @binding(0) var<uniform> u: GU;
 @group(0) @binding(1) var samp: sampler;
@@ -501,6 +609,7 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
   }
 
   col = mix(col, u.tint.rgb, tintAmt);
+  col = mix(col, u.bg.rgb, u.bg.a); // panel background over the refracted sample at its alpha (occludes when opaque)
   col *= u.misc.z; // brighten (live-tunable)
 
   // thin rim edge — keeps the glass shape readable, always on
@@ -774,6 +883,9 @@ export class Painter {
   // src from re-fetching every frame; `tick` is the last frame it was used (for LRU eviction).
   private images = new Map<string, ImageEntry>();
   private imageTick = 0; // bumped each drawImages; entry.tick records last use for LRU eviction
+  private vectorPipeline!: GPURenderPipeline;
+  private vectors = new Map<string, VectorEntry>(); // analytic SVG assets, one entry per `src`
+  private vectorTick = 0;
   private blitPipeline!: GPURenderPipeline;
   private alphaBlitPipeline!: GPURenderPipeline; // composite an offscreen subtree at a group opacity
   private opacityTex: GPUTexture | null = null; // reused full-screen scratch for group-opacity batches
@@ -829,6 +941,9 @@ export class Painter {
   /** Set by the runtime: called when an image finishes loading (async), so the frame repaints and
    *  the now-ready texture is drawn instead of staying blank until the next unrelated repaint. */
   onImageLoaded?: () => void;
+
+  /** Set by the runtime: called when an async SVG vector asset finishes loading, to trigger a repaint. */
+  onVectorLoaded?: () => void;
 
   /** True once the GPUDevice is lost OR this Painter is destroyed. Frames become no-ops so a
    *  lost / unconfigured context never throws out of the render loop. */
@@ -925,6 +1040,8 @@ export class Painter {
       this.glyphCache.clear();
       for (const e of this.images.values()) e.tex?.destroy();
       this.images.clear(); // images re-fetch on the next frame (drawImages re-kicks the loads)
+      for (const e of this.vectors.values()) e.curveBuffer?.destroy();
+      this.vectors.clear(); // SVG assets re-parse + re-upload on the next frame
       this.packX = 1;
       this.packY = 1;
       this.packRowH = 0;
@@ -1019,6 +1136,30 @@ export class Painter {
         ],
       },
       fragment: { module: imageModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
+      primitive: { topology: "triangle-list" },
+    });
+
+    const vectorModule = device.createShaderModule({ code: VECTOR_WGSL });
+    this.vectorPipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: vectorModule,
+        entryPoint: "vs",
+        buffers: [
+          {
+            arrayStride: 80, // rect[4] lrect[4] color[4] meta(u32)[4] clip[4]
+            stepMode: "instance",
+            attributes: [
+              { shaderLocation: 0, offset: 0, format: "float32x4" }, // rect (screen px)
+              { shaderLocation: 1, offset: 16, format: "float32x4" }, // lrect (path/viewBox space)
+              { shaderLocation: 2, offset: 32, format: "float32x4" }, // fill color
+              { shaderLocation: 3, offset: 48, format: "uint32x4" }, // [curveStart, curveCount, evenOdd, _]
+              { shaderLocation: 4, offset: 64, format: "float32x4" }, // clip
+            ],
+          },
+        ],
+      },
+      fragment: { module: vectorModule, entryPoint: "fs", targets: [{ format, blend: PREMUL_BLEND }] },
       primitive: { topology: "triangle-list" },
     });
 
@@ -1204,16 +1345,17 @@ export class Painter {
     const clear = { r: 0, g: 0, b: 0, a: 0 };
 
     while (this.glassBuffers.length < glass.length) {
-      this.glassBuffers.push(this.device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+      this.glassBuffers.push(this.device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     }
     glass.forEach((g, i) => {
-      const u = new Float32Array(24);
+      const u = new Float32Array(28);
       u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
       u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
       u[8] = g.refraction; u[9] = g.blur; u[10] = g.tint; u[11] = g.rim;
       u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
       u[16] = dpr; u[17] = g.radius; u[18] = g.brighten; u[19] = g.specular;
       u[20] = g.dispersion;
+      u[24] = g.background[0]; u[25] = g.background[1]; u[26] = g.background[2]; u[27] = g.background[3]; // bg vec4f at offset 96
       this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
     });
 
@@ -1503,6 +1645,116 @@ export class Painter {
     }
   }
 
+  // Kick off an async load for an SVG `src` (once). Fetch text → parse to fillable paths → flatten to
+  // a quad-control-point storage buffer + per-path metadata, build the bind group, and repaint via
+  // onVectorLoaded. Device-generation + live-entry guarded (no leak across a device-loss → recover()).
+  private loadVector(src: string, entry: VectorEntry) {
+    entry.loading = true;
+    const dev = this.device;
+    void (async () => {
+      try {
+        // 15s timeout so a hung origin can't pin entry.loading forever (which would block eviction).
+        const resp = await fetch(src, { signal: AbortSignal.timeout(15000) });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const text = await resp.text();
+        if (this.lost || this.device !== dev || this.vectors.get(src) !== entry) {
+          entry.loading = false;
+          return;
+        }
+        const mesh = flattenVectorDoc(parseSvgDocument(text));
+        if (!mesh.paths.length || mesh.curves.length === 0) {
+          entry.loading = false;
+          entry.failed = true; // nothing fillable (e.g. stroke-only icon, or unsupported content)
+          return;
+        }
+        if (mesh.curves.byteLength > this.device.limits.maxStorageBufferBindingSize) {
+          entry.loading = false;
+          entry.failed = true; // too large for a storage buffer — would create an invalid (silently broken) buffer
+          console.error(`[kussetsu] SVG too large for the GPU (${mesh.curves.byteLength} bytes > maxStorageBufferBindingSize): ${src}`);
+          return;
+        }
+        const buf = this.device.createBuffer({ size: mesh.curves.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        this.device.queue.writeBuffer(buf, 0, mesh.curves);
+        entry.curveBuffer = buf;
+        entry.paths = mesh.paths;
+        entry.viewBox = mesh.viewBox;
+        entry.bindGroup = this.device.createBindGroup({
+          layout: this.vectorPipeline.getBindGroupLayout(0),
+          entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }, { binding: 1, resource: { buffer: buf } }],
+        });
+        entry.loading = false;
+        this.onVectorLoaded?.();
+      } catch (e) {
+        entry.loading = false;
+        entry.failed = !this.lost; // a device-loss mid-load isn't a real failure — recover() re-loads
+        if (entry.failed) console.error(`[kussetsu] failed to load SVG: ${src}`, e instanceof Error ? e.message : e);
+      }
+    })();
+  }
+
+  // Draw SVG vectors analytically. Group by src (one curve-buffer bind group per asset); kick loads for
+  // new srcs; for each ready asset draw one instanced quad PER (item × path), mapping the viewBox into
+  // the node box (contain, centered) and ½px-expanding so the AA edge isn't clipped. The fragment fills
+  // each path from its quads in the bound curve buffer — crisp at any zoom.
+  private drawVectors(pass: GPURenderPassEncoder, items: VectorItem[]) {
+    if (!items.length) return;
+    const tick = this.vectorTick;
+    const groups = new Map<string, VectorItem[]>();
+    for (const it of items) {
+      let g = groups.get(it.src);
+      if (!g) groups.set(it.src, (g = []));
+      g.push(it);
+    }
+    pass.setPipeline(this.vectorPipeline);
+    for (const [src, list] of groups) {
+      let entry = this.vectors.get(src);
+      if (!entry) this.vectors.set(src, (entry = { curveBuffer: null, bindGroup: null, paths: [], viewBox: [0, 0, 1, 1], loading: false, failed: false, tick }));
+      entry.tick = tick;
+      if (!entry.bindGroup && !entry.loading && !entry.failed) this.loadVector(src, entry);
+      if (!entry.bindGroup || !entry.paths.length) continue;
+      const data = new Float32Array(list.length * entry.paths.length * 20);
+      const u = new Uint32Array(data.buffer);
+      const [vx, vy, vw, vh] = entry.viewBox;
+      let k = 0;
+      for (const it of list) {
+        const s = Math.min(it.w / vw, it.h / vh); // contain (preserve aspect)
+        if (!(s > 0) || !Number.isFinite(s)) continue; // skip zero-size nodes / degenerate viewBox (no NaN geometry)
+        const ox = it.x + (it.w - vw * s) / 2 - vx * s;
+        const oy = it.y + (it.h - vh * s) / 2 - vy * s;
+        const inv = 1 / s;
+        const cl = it.clip;
+        for (const p of entry.paths) {
+          const o = k++ * 20;
+          const [lx, ly, lw, lh] = p.lbox;
+          data[o] = ox + s * lx - 0.5; data[o + 1] = oy + s * ly - 0.5; data[o + 2] = s * lw + 1; data[o + 3] = s * lh + 1;
+          data[o + 4] = lx - 0.5 * inv; data[o + 5] = ly - 0.5 * inv; data[o + 6] = lw + inv; data[o + 7] = lh + inv;
+          data[o + 8] = p.fill[0]; data[o + 9] = p.fill[1]; data[o + 10] = p.fill[2]; data[o + 11] = p.fill[3];
+          u[o + 12] = p.curveStart; u[o + 13] = p.curveCount; u[o + 14] = p.evenOdd ? 1 : 0; u[o + 15] = 0;
+          if (cl) { data[o + 16] = cl[0]; data[o + 17] = cl[1]; data[o + 18] = cl[2]; data[o + 19] = cl[3]; }
+        }
+      }
+      if (!k) continue;
+      const buf = this.device.createBuffer({ size: k * 80, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.device.queue.writeBuffer(buf, 0, data, 0, k * 20);
+      pass.setBindGroup(0, entry.bindGroup);
+      pass.setVertexBuffer(0, buf);
+      pass.draw(6, k);
+      this.pendingBuffers.push(buf);
+    }
+  }
+
+  private evictVectors(currentTick: number) {
+    if (this.vectors.size <= VECTOR_CACHE_MAX) return;
+    const evictable = [...this.vectors.entries()].filter(([, e]) => e.tick !== currentTick && !e.loading).sort((a, b) => a[1].tick - b[1].tick);
+    let over = this.vectors.size - VECTOR_CACHE_MAX;
+    for (const [src, e] of evictable) {
+      if (over <= 0) break;
+      e.curveBuffer?.destroy();
+      this.vectors.delete(src);
+      over--;
+    }
+  }
+
   // Draw overlay layers (style.zIndex) on top of the scene, in the pre-sorted ascending-z order
   // (last = topmost). Each overlay paints into `view` (loadOp 'load'): shadows behind, then rects,
   // glyphs, and images. Screen-space (collectOverlays applied the camera), so the identity-camera
@@ -1526,6 +1778,7 @@ export class Painter {
       }
       this.drawGlyphs(p, ov.texts);
       this.drawImages(p, ov.images);
+      this.drawVectors(p, ov.vectors);
       p.end();
       if (shadowBuf) this.pendingBuffers.push(shadowBuf);
       if (rectBuf) this.pendingBuffers.push(rectBuf);
@@ -1668,22 +1921,23 @@ export class Painter {
   // Public frame entry: a no-op once the device is lost, and a synchronous GPU throw mid-frame
   // (device lost before the async device.lost handler fires) is caught and routed to
   // onDeviceError instead of escaping the render loop / rAF callback.
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { groups: { rects: Rect[]; texts: TextItem[] }[]; rest: { rects: Rect[]; texts: TextItem[] } }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[]) {
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { groups: { rects: Rect[]; texts: TextItem[] }[]; rest: { rects: Rect[]; texts: TextItem[] } }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[], vectors?: VectorItem[]) {
     if (this.lost) return;
     try {
-      this.frameImpl(rects, texts, glass, fg, materials, info, shadows, opacityGroups, images, overlays);
+      this.frameImpl(rects, texts, glass, fg, materials, info, shadows, opacityGroups, images, overlays, vectors);
     } catch (e) {
       this.handleFrameError(e);
     }
   }
 
-  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { groups: { rects: Rect[]; texts: TextItem[] }[]; rest: { rects: Rect[]; texts: TextItem[] } }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[]) {
+  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { groups: { rects: Rect[]; texts: TextItem[] }[]; rest: { rects: Rect[]; texts: TextItem[] } }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[], vectors?: VectorItem[]) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
     const dpr = fbw / cssWidth;
     this.ensureBackdrop(fbw, fbh);
     this.imageTick++; // one LRU tick per FRAME (drawImages runs >1× — main PASS 1.9 + per-overlay)
+    this.vectorTick++;
     // identity camera — rects from collectRects() are already screen-space.
     this.device.queue.writeBuffer(this.vpBuffer, 0, new Float32Array([cssWidth, cssHeight, 0, 0, 0, 0, 1, 0]));
 
@@ -1778,6 +2032,14 @@ export class Painter {
       this.drawImages(ip, images);
       ip.end();
     }
+
+    // PASS 1.95 — analytic SVG vectors onto the backdrop (over rects/glyphs/images, still under glass).
+    if (vectors && vectors.length) {
+      const vp = encoder.beginRenderPass({ colorAttachments: [{ view: this.backdropView!, loadOp: "load", storeOp: "store" }] });
+      this.drawVectors(vp, vectors);
+      vp.end();
+    }
+    this.evictVectors(this.vectorTick);
 
     // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass) -> finalView.
     this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr, finalView, fg?.groups);
@@ -1906,6 +2168,8 @@ export class Painter {
     this.brightTex?.destroy();
     for (const e of this.images.values()) e.tex?.destroy();
     this.images.clear();
+    for (const e of this.vectors.values()) e.curveBuffer?.destroy();
+    this.vectors.clear();
     for (const b of [this.vpBuffer, this.bgBuffer, this.bloomExtractU, this.bloomCompositeU, this.nodeBuffer]) b?.destroy();
     for (const b of this.glassBuffers) b.destroy();
     for (const b of this.materialBuffers) b.destroy();

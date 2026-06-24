@@ -5,6 +5,29 @@ All notable changes to Kussetsu are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **Real vector-rendered SVG** — `<Svg src="…" />` (or the `svg` prop on any node) renders an SVG as
+  true analytic GPU fills that stay **crisp at any zoom**, not a rasterized texture. Implemented with the
+  Slug per-pixel analytic-coverage technique (Lengyel, JCGT 2017; algorithm public-domain as of
+  2026-03-17): each path's quadratic outline is filled in a WGSL fragment shader via `0x2E74`
+  sign-classification + a ±1px (`fwidth`) coverage ramp, so edges are re-solved at the displayed
+  resolution every frame. Supports `<path>`/`<rect>`/`<circle>`/`<ellipse>`/`<polygon>`/`<polyline>`
+  under `<g>`, with `transform`, `fill` / `fill-rule` (nonzero **and** even-odd) / `fill-opacity` /
+  `opacity` (inherited), `viewBox`, and SVGO-compacted arc flags. The SVG is fit into the node box
+  (contain, preserving aspect), loaded once per `src` (async, bounded LRU cache, device-loss-aware), and
+  lifts into the `zIndex` overlay layer like images.
+  - **Strokes** — `stroke` / `stroke-width` / `stroke-opacity` / `stroke-linecap` (butt/round/square) /
+    `stroke-linejoin` (miter/round/bevel) / `stroke-miterlimit` (all inherited) now render, so
+    **stroke-based icon sets (Lucide, Feather, Heroicons-outline, Tabler) work**. Strokes are converted
+    to fill geometry (a union of per-segment + per-join + per-cap pieces, merged into one path so the
+    fill unions them cleanly — no double-darkening at `stroke-opacity < 1`). A shape can have both a
+    fill and a stroke.
+  - **Not yet:** gradients/patterns (`url(#…)` fills skipped — planned), `stroke-dasharray`, and
+    filters/masks/clipPaths/`<use>`/`<text>`. The fill shader is unbanded, so a per-path quad cap skips
+    (with a warning) pathologically dense paths rather than stalling the GPU; scanline banding to lift
+    that ceiling is planned. Like images, a vector inside an `opacity` group isn't group-faded.
+
 ## [0.5.0] — 2026-06-23
 
 The Pillar-3 feature wins: drawing **images**, a **z-index / overlay** layer (modals, dropdowns,

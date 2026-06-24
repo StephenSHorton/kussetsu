@@ -18,7 +18,7 @@ export { GpuCanvas, type GpuCanvasProps } from "./GpuCanvas";
 // The typed authoring API. `<View>` (a box) and `<Text>` (a string) are the GPU host
 // elements wrapped so they type-check cleanly (the lowercase `<view>`/`<text>` intrinsics
 // collide with React's SVG typings — see ./components).
-export { View, Text, Image, type ViewProps, type TextProps, type ImageProps } from "./components";
+export { View, Text, Image, Svg, type ViewProps, type TextProps, type ImageProps, type SvgProps } from "./components";
 
 // Authoring types (the node props + style).
 export type { Style, Size, NodeProps, GlassSpec, ShadowSpec, ImageSpec, MaterialSpec, PostProcess, Role, RGBA, Camera, ActivateEvent } from "./scene";

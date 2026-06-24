@@ -21,7 +21,7 @@ export interface GlassParams {
 
 // refraction 0.09 matches the documented per-node GlassSpec default (scene.ts) and the
 // collectGlass fallback, so enabling the global / a default override doesn't shift the look.
-export const GLASS_DEFAULTS: GlassParams = { refraction: 0.09, blur: 0, tint: 0.05, rim: 16, brighten: 1.03, specular: 0.05, dispersion: 0.025, tintColor: [0.82, 0.87, 1, 1] };
+export const GLASS_DEFAULTS: GlassParams = { refraction: 0.09, blur: 0, tint: 0, rim: 16, brighten: 1.03, specular: 0.02, dispersion: 0.025, tintColor: [0.82, 0.87, 1, 1] };
 
 export const glassTuning: { enabled: boolean; params: GlassParams } = {
   enabled: false,

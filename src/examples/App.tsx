@@ -1,5 +1,37 @@
 import { useState } from "react";
-import { Image, Text, View } from "../core";
+import { Image, Svg, Text, View } from "../core";
+
+// A filled SVG exercising the analytic vector path: rounded rect (arcs) + circle (arcs) + triangle
+// (lines) + a cubic-curve wave + an even-odd square donut. All FILLS — crisp at any zoom.
+const TEST_SVG =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>" +
+      "<rect x='2' y='2' width='96' height='96' rx='16' fill='#1a2030'/>" +
+      "<circle cx='30' cy='32' r='18' fill='#ff5c5c'/>" +
+      "<polygon points='62,12 86,56 38,56' fill='#00d98b'/>" +
+      "<path d='M16 66 C36 92, 78 92, 92 68 L92 90 L16 90 Z' fill='#5c7cff'/>" +
+      "<path d='M58 60 h34 v34 h-34 z M66 68 h18 v18 h-18 z' fill='#ffd23f' fill-rule='evenodd'/>" +
+      "</svg>",
+  );
+
+// Real Lucide-style STROKE icons (fill=none, stroke, round caps/joins) — exercise stroke-to-fill.
+const icon = (inner: string) =>
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#e6edf6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'>${inner}</svg>`,
+  );
+const ICON_CHECK = icon("<path d='M20 6 9 17l-5-5'/>");
+const ICON_HEART = icon("<path d='M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z'/>");
+const ICON_CIRCLE = icon("<circle cx='12' cy='12' r='9'/>");
+const ICON_X = icon("<path d='M18 6 6 18M6 6l12 12'/>");
+const ICON_ACTIVITY = icon("<polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/>"); // open polyline (caps, no closing edge)
+const ICON_HEART_FADED = // translucent stroke — must NOT double-darken at joins/caps
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#e6edf6' stroke-opacity='0.45' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z'/></svg>",
+  );
+
 import type { RGBA } from "../core/scene";
 
 // A 2:1 (240×120) data-URI image so cover/contain/fill are visually distinct in a square box.
@@ -70,6 +102,25 @@ export function App() {
         <Image src={DEMO_IMG} fit="contain" style={{ width: 120, height: 120, radius: 16, background: [0.1, 0.12, 0.2, 1] }} />
         <Image src={DEMO_IMG} fit="fill" style={{ width: 120, height: 120, radius: 16 }} />
         <Image src={DEMO_IMG} fit="cover" style={{ width: 96, height: 96, radius: 48 }} />
+      </View>
+
+      {/* Real vector-rendered SVG (analytic GPU fills — crisp at any zoom) at three sizes. */}
+      <View style={{ direction: "row", gap: 16, align: "center" }}>
+        <Svg src={TEST_SVG} style={{ width: 240, height: 240 }} />
+        <Svg src={TEST_SVG} style={{ width: 120, height: 120 }} />
+        <Svg src={TEST_SVG} style={{ width: 48, height: 48 }} />
+      </View>
+
+      {/* Lucide-style STROKE icons (stroke-to-fill) at 96 + 32px. */}
+      <View style={{ direction: "row", gap: 20, align: "center" }}>
+        <Svg src={ICON_CHECK} style={{ width: 96, height: 96 }} />
+        <Svg src={ICON_HEART} style={{ width: 96, height: 96 }} />
+        <Svg src={ICON_CIRCLE} style={{ width: 96, height: 96 }} />
+        <Svg src={ICON_X} style={{ width: 96, height: 96 }} />
+        <Svg src={ICON_CHECK} style={{ width: 32, height: 32 }} />
+        <Svg src={ICON_HEART} style={{ width: 32, height: 32 }} />
+        <Svg src={ICON_ACTIVITY} style={{ width: 96, height: 96 }} />
+        <Svg src={ICON_HEART_FADED} style={{ width: 96, height: 96 }} />
       </View>
 
       {/* Real flexbox (Yoga): a wrapping chip row. */}
