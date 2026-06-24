@@ -370,11 +370,11 @@ export function collectGlass(root: ElementNode, cam: Camera, scroll: ScrollMap, 
         radius: (n.props.style?.radius ?? 22) * cam.scale,
         refraction: t ? t.refraction : (g.refraction ?? 0.09),
         blur: (t ? t.blur : (g.blur ?? 0)) * cam.scale,
-        tint: t ? t.tint : (g.tint ?? 0.05),
+        tint: t ? t.tint : (g.tint ?? 0),
         tintColor: t ? t.tintColor : (g.tintColor ?? GLASS_TINT),
         rim: (t ? t.rim : (g.rim ?? 16)) * cam.scale,
         brighten: t ? t.brighten : 1.03,
-        specular: t ? t.specular : (g.specular ?? 0.05),
+        specular: t ? t.specular : (g.specular ?? 0.02),
         dispersion: t ? t.dispersion : (g.dispersion ?? 0.025),
       });
     }

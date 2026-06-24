@@ -78,10 +78,10 @@ export interface ShadowSpec {
 export interface GlassSpec {
   refraction?: number; // default 0.09 — fraction of panel size the rim bends
   blur?: number; // default 0 — backdrop blur radius, CSS px
-  tint?: number; // default 0.05 — mix toward tintColor
+  tint?: number; // default 0 — mix toward tintColor (clear glass by default; tint is opt-in)
   tintColor?: RGBA; // default cool white
   rim?: number; // default 16 — rim band width, CSS px
-  specular?: number; // default 0.05 — highlight/glint intensity
+  specular?: number; // default 0.02 — highlight/glint intensity
   dispersion?: number; // default 0.025 — chromatic rim split (the colorful edge)
 }
 
