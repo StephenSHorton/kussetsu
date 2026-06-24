@@ -25,6 +25,22 @@ const ICON_CHECK = icon("<path d='M20 6 9 17l-5-5'/>");
 const ICON_HEART = icon("<path d='M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z'/>");
 const ICON_CIRCLE = icon("<circle cx='12' cy='12' r='9'/>");
 const ICON_X = icon("<path d='M18 6 6 18M6 6l12 12'/>");
+// Gradient fills: linear (2-stop diagonal) + linear (3-stop rainbow) + radial (white→dark) + on a path.
+const TEST_GRAD =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>" +
+      "<defs>" +
+      "<linearGradient id='lin' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='#ff5c5c'/><stop offset='1' stop-color='#5c7cff'/></linearGradient>" +
+      "<linearGradient id='rbw' x1='0' y1='0' x2='1' y2='0'><stop offset='0' stop-color='#ff2d2d'/><stop offset='0.5' stop-color='#1fd65f'/><stop offset='1' stop-color='#3b6bff'/></linearGradient>" +
+      "<radialGradient id='rad' cx='0.5' cy='0.5' r='0.5'><stop offset='0' stop-color='#ffffff'/><stop offset='1' stop-color='#16203a'/></radialGradient>" +
+      "</defs>" +
+      "<rect x='4' y='4' width='44' height='44' rx='8' fill='url(#lin)'/>" +
+      "<rect x='52' y='4' width='44' height='44' rx='8' fill='url(#rbw)'/>" +
+      "<circle cx='26' cy='74' r='22' fill='url(#rad)'/>" +
+      "<path d='M74 58 C82 48 98 60 74 96 C50 60 66 48 74 58 Z' fill='url(#rbw)'/>" +
+      "</svg>",
+  );
 const ICON_ACTIVITY = icon("<polyline points='22 12 18 12 15 21 9 3 6 12 2 12'/>"); // open polyline (caps, no closing edge)
 const ICON_HEART_FADED = // translucent stroke — must NOT double-darken at joins/caps
   "data:image/svg+xml," +
@@ -121,6 +137,12 @@ export function App() {
         <Svg src={ICON_HEART} style={{ width: 32, height: 32 }} />
         <Svg src={ICON_ACTIVITY} style={{ width: 96, height: 96 }} />
         <Svg src={ICON_HEART_FADED} style={{ width: 96, height: 96 }} />
+      </View>
+
+      {/* Gradients: linear (2-stop diagonal), linear (3-stop rainbow), radial, gradient-on-a-path. */}
+      <View style={{ direction: "row", gap: 16, align: "center" }}>
+        <Svg src={TEST_GRAD} style={{ width: 220, height: 220 }} />
+        <Svg src={TEST_GRAD} style={{ width: 96, height: 96 }} />
       </View>
 
       {/* Real flexbox (Yoga): a wrapping chip row. */}

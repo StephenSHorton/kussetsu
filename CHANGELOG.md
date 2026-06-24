@@ -23,10 +23,17 @@ All notable changes to Kussetsu are documented here. This project adheres to
     to fill geometry (a union of per-segment + per-join + per-cap pieces, merged into one path so the
     fill unions them cleanly — no double-darkening at `stroke-opacity < 1`). A shape can have both a
     fill and a stroke.
-  - **Not yet:** gradients/patterns (`url(#…)` fills skipped — planned), `stroke-dasharray`, and
-    filters/masks/clipPaths/`<use>`/`<text>`. The fill shader is unbanded, so a per-path quad cap skips
-    (with a warning) pathologically dense paths rather than stalling the GPU; scanline banding to lift
-    that ceiling is planned. Like images, a vector inside an `opacity` group isn't group-faded.
+  - **Gradients** — `<linearGradient>` / `<radialGradient>` (N stops, `stop-color` / `stop-opacity`,
+    `href`/`xlink:href` stop inheritance), referenced via `fill="url(#id)"` or `stroke="url(#id)"`, in
+    both `objectBoundingBox` and `userSpaceOnUse` units (`pad` spread). Radial gradients render as an
+    ellipse that hugs a non-square box. Evaluated per-pixel in the fill shader (stops in a storage
+    buffer), so it stays smooth at any zoom.
+  - **Not yet:** `gradientTransform` + gradients on rotated/skewed elements (use the element's
+    axis-aligned box), `reflect`/`repeat` spread, patterns, `stroke-dasharray`, and
+    filters/masks/clipPaths/`<use>`/`<text>`. The fill shader is
+    unbanded, so a per-path quad cap skips (with a warning) pathologically dense paths rather than
+    stalling the GPU; scanline banding to lift that ceiling is planned. Like images, a vector inside an
+    `opacity` group isn't group-faded.
 
 ## [0.5.0] — 2026-06-23
 

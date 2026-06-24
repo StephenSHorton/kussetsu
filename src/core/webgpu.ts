@@ -93,8 +93,9 @@ export interface VectorItem {
 }
 interface VectorEntry {
   curveBuffer: GPUBuffer | null;
-  bindGroup: GPUBindGroup | null; // vp + this asset's curve buffer
-  paths: VectorPathMeta[]; // per-path metadata (curveStart/Count, fill, evenOdd, lbox in viewBox space)
+  stopsBuffer: GPUBuffer | null; // gradient stops (per asset)
+  bindGroup: GPUBindGroup | null; // vp + this asset's curve + stops buffers
+  paths: VectorPathMeta[]; // per-path metadata (curveStart/Count, fill, evenOdd, lbox, gradient in viewBox space)
   viewBox: [number, number, number, number];
   loading: boolean;
   failed: boolean;
@@ -279,6 +280,7 @@ const VECTOR_WGSL = /* wgsl */ `
 struct VP { size: vec2f };
 @group(0) @binding(0) var<uniform> vp: VP;
 @group(0) @binding(1) var<storage, read> curves: array<vec2f>; // per quad: p0, control, p1
+@group(0) @binding(2) var<storage, read> stops: array<f32>;    // per gradient stop: offset, r,g,b,a
 struct VSOut {
   @builtin(position) pos: vec4f,
   @location(0) local: vec2f,              // fragment position in PATH (viewBox) space
@@ -287,9 +289,11 @@ struct VSOut {
   @location(3) @interpolate(flat) evenOdd: u32,
   @location(4) clip: vec4f,
   @location(5) screenPos: vec2f,
+  @location(6) gradGeom: vec4f,                    // linear x1y1x2y2 | radial cx cy r _
+  @location(7) @interpolate(flat) grad: vec3u,     // gradType (0/1/2), stopStart, stopCount
 };
 const QV = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0),vec2f(1,1));
-@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) lrect: vec4f, @location(2) color: vec4f, @location(3) idata: vec4u, @location(4) clip: vec4f) -> VSOut {
+@vertex fn vs(@builtin(vertex_index) vi: u32, @location(0) rect: vec4f, @location(1) lrect: vec4f, @location(2) color: vec4f, @location(3) idata: vec4u, @location(4) clip: vec4f, @location(5) gradGeom: vec4f, @location(6) gradMeta: vec4u) -> VSOut {
   let q = QV[vi];
   let px = rect.xy + q*rect.zw;
   let ndc = vec2f(px.x/vp.size.x*2.0-1.0, -(px.y/vp.size.y*2.0-1.0));
@@ -297,7 +301,24 @@ const QV = array<vec2f,6>(vec2f(0,0),vec2f(1,0),vec2f(0,1), vec2f(0,1),vec2f(1,0
   o.pos = vec4f(ndc,0,1);
   o.local = lrect.xy + q*lrect.zw;   // path-space coord at this fragment
   o.color = color; o.range = idata.xy; o.evenOdd = idata.z; o.clip = clip; o.screenPos = px;
+  o.gradGeom = gradGeom; o.grad = gradMeta.xyz;
   return o;
+}
+// gradient color at parameter t (pad spread). stops: offset, r,g,b,a per stop, starting at index start*5.
+fn gradColor(start: u32, count: u32, t: f32) -> vec4f {
+  let b0 = start * 5u;
+  if (t <= stops[b0]) { return vec4f(stops[b0+1u], stops[b0+2u], stops[b0+3u], stops[b0+4u]); }
+  let bl = (start + count - 1u) * 5u;
+  if (t >= stops[bl]) { return vec4f(stops[bl+1u], stops[bl+2u], stops[bl+3u], stops[bl+4u]); }
+  for (var j = 0u; j + 1u < count; j = j + 1u) {
+    let ba = (start + j) * 5u; let bc = (start + j + 1u) * 5u;
+    let oa = stops[ba]; let oc = stops[bc];
+    if (t >= oa && t < oc) {
+      let f = (t - oa) / max(oc - oa, 1e-6);
+      return mix(vec4f(stops[ba+1u], stops[ba+2u], stops[ba+3u], stops[ba+4u]), vec4f(stops[bc+1u], stops[bc+2u], stops[bc+3u], stops[bc+4u]), f);
+    }
+  }
+  return vec4f(stops[bl+1u], stops[bl+2u], stops[bl+3u], stops[bl+4u]);
 }
 fn clipAlpha(p: vec2f, clip: vec4f) -> f32 {
   if (clip.z <= 0.0) { return 1.0; }
@@ -344,8 +365,19 @@ fn cov1(p0: vec2f, p1: vec2f, p2: vec2f, m: f32) -> f32 {
   let sum = (h + v) * 0.5;
   var cov = clamp(abs(sum), 0.0, 1.0);                       // nonzero (winding-direction agnostic)
   if (in.evenOdd != 0u) { cov = 1.0 - abs(1.0 - fract(sum * 0.5) * 2.0); } // even-odd parity fold
-  let alpha = cov * in.color.a * clipAlpha(in.screenPos, in.clip);
-  return vec4f(in.color.rgb * alpha, alpha); // premultiplied
+  var col = in.color;
+  if (in.grad.x != 0u && in.grad.z > 0u) {                   // gradient paint
+    var t: f32;
+    if (in.grad.x == 1u) {                                   // linear: project onto the axis
+      let axis = in.gradGeom.zw - in.gradGeom.xy;
+      t = dot(p - in.gradGeom.xy, axis) / max(dot(axis, axis), 1e-6);
+    } else {                                                 // radial: elliptical distance (rx, ry)
+      t = length((p - in.gradGeom.xy) / max(in.gradGeom.zw, vec2f(1e-6)));
+    }
+    col = gradColor(in.grad.y, in.grad.z, clamp(t, 0.0, 1.0));
+  }
+  let alpha = cov * col.a * clipAlpha(in.screenPos, in.clip);
+  return vec4f(col.rgb * alpha, alpha); // premultiplied
 }
 `;
 
@@ -1040,7 +1072,7 @@ export class Painter {
       this.glyphCache.clear();
       for (const e of this.images.values()) e.tex?.destroy();
       this.images.clear(); // images re-fetch on the next frame (drawImages re-kicks the loads)
-      for (const e of this.vectors.values()) e.curveBuffer?.destroy();
+      for (const e of this.vectors.values()) { e.curveBuffer?.destroy(); e.stopsBuffer?.destroy(); }
       this.vectors.clear(); // SVG assets re-parse + re-upload on the next frame
       this.packX = 1;
       this.packY = 1;
@@ -1147,7 +1179,7 @@ export class Painter {
         entryPoint: "vs",
         buffers: [
           {
-            arrayStride: 80, // rect[4] lrect[4] color[4] meta(u32)[4] clip[4]
+            arrayStride: 112, // rect[4] lrect[4] color[4] meta(u32)[4] clip[4] gradGeom[4] gradMeta(u32)[4]
             stepMode: "instance",
             attributes: [
               { shaderLocation: 0, offset: 0, format: "float32x4" }, // rect (screen px)
@@ -1155,6 +1187,8 @@ export class Painter {
               { shaderLocation: 2, offset: 32, format: "float32x4" }, // fill color
               { shaderLocation: 3, offset: 48, format: "uint32x4" }, // [curveStart, curveCount, evenOdd, _]
               { shaderLocation: 4, offset: 64, format: "float32x4" }, // clip
+              { shaderLocation: 5, offset: 80, format: "float32x4" }, // gradGeom
+              { shaderLocation: 6, offset: 96, format: "uint32x4" }, // [gradType, stopStart, stopCount, _]
             ],
           },
         ],
@@ -1667,20 +1701,26 @@ export class Painter {
           entry.failed = true; // nothing fillable (e.g. stroke-only icon, or unsupported content)
           return;
         }
-        if (mesh.curves.byteLength > this.device.limits.maxStorageBufferBindingSize) {
+        const sbLimit = this.device.limits.maxStorageBufferBindingSize;
+        if (mesh.curves.byteLength > sbLimit || mesh.stops.byteLength > sbLimit) {
           entry.loading = false;
           entry.failed = true; // too large for a storage buffer — would create an invalid (silently broken) buffer
-          console.error(`[kussetsu] SVG too large for the GPU (${mesh.curves.byteLength} bytes > maxStorageBufferBindingSize): ${src}`);
+          console.error(`[kussetsu] SVG too large for the GPU (curves ${mesh.curves.byteLength} / stops ${mesh.stops.byteLength} bytes > maxStorageBufferBindingSize): ${src}`);
           return;
         }
         const buf = this.device.createBuffer({ size: mesh.curves.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
         this.device.queue.writeBuffer(buf, 0, mesh.curves);
+        // gradient stops storage buffer (min 1 float so the binding is valid even with no gradients)
+        const stopsData = mesh.stops.length ? mesh.stops : new Float32Array(1);
+        const stopsBuf = this.device.createBuffer({ size: stopsData.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+        this.device.queue.writeBuffer(stopsBuf, 0, stopsData);
         entry.curveBuffer = buf;
+        entry.stopsBuffer = stopsBuf;
         entry.paths = mesh.paths;
         entry.viewBox = mesh.viewBox;
         entry.bindGroup = this.device.createBindGroup({
           layout: this.vectorPipeline.getBindGroupLayout(0),
-          entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }, { binding: 1, resource: { buffer: buf } }],
+          entries: [{ binding: 0, resource: { buffer: this.vpBuffer } }, { binding: 1, resource: { buffer: buf } }, { binding: 2, resource: { buffer: stopsBuf } }],
         });
         entry.loading = false;
         this.onVectorLoaded?.();
@@ -1708,11 +1748,12 @@ export class Painter {
     pass.setPipeline(this.vectorPipeline);
     for (const [src, list] of groups) {
       let entry = this.vectors.get(src);
-      if (!entry) this.vectors.set(src, (entry = { curveBuffer: null, bindGroup: null, paths: [], viewBox: [0, 0, 1, 1], loading: false, failed: false, tick }));
+      if (!entry) this.vectors.set(src, (entry = { curveBuffer: null, stopsBuffer: null, bindGroup: null, paths: [], viewBox: [0, 0, 1, 1], loading: false, failed: false, tick }));
       entry.tick = tick;
       if (!entry.bindGroup && !entry.loading && !entry.failed) this.loadVector(src, entry);
       if (!entry.bindGroup || !entry.paths.length) continue;
-      const data = new Float32Array(list.length * entry.paths.length * 20);
+      const STRIDE = 28; // floats per instance (112 bytes): rect4 lrect4 color4 meta4 clip4 gradGeom4 gradMeta4
+      const data = new Float32Array(list.length * entry.paths.length * STRIDE);
       const u = new Uint32Array(data.buffer);
       const [vx, vy, vw, vh] = entry.viewBox;
       let k = 0;
@@ -1724,18 +1765,20 @@ export class Painter {
         const inv = 1 / s;
         const cl = it.clip;
         for (const p of entry.paths) {
-          const o = k++ * 20;
+          const o = k++ * STRIDE;
           const [lx, ly, lw, lh] = p.lbox;
           data[o] = ox + s * lx - 0.5; data[o + 1] = oy + s * ly - 0.5; data[o + 2] = s * lw + 1; data[o + 3] = s * lh + 1;
           data[o + 4] = lx - 0.5 * inv; data[o + 5] = ly - 0.5 * inv; data[o + 6] = lw + inv; data[o + 7] = lh + inv;
           data[o + 8] = p.fill[0]; data[o + 9] = p.fill[1]; data[o + 10] = p.fill[2]; data[o + 11] = p.fill[3];
           u[o + 12] = p.curveStart; u[o + 13] = p.curveCount; u[o + 14] = p.evenOdd ? 1 : 0; u[o + 15] = 0;
           if (cl) { data[o + 16] = cl[0]; data[o + 17] = cl[1]; data[o + 18] = cl[2]; data[o + 19] = cl[3]; }
+          data[o + 20] = p.gradGeom[0]; data[o + 21] = p.gradGeom[1]; data[o + 22] = p.gradGeom[2]; data[o + 23] = p.gradGeom[3]; // gradGeom (viewBox space, same as lrect)
+          u[o + 24] = p.gradType; u[o + 25] = p.stopStart; u[o + 26] = p.stopCount; u[o + 27] = 0;
         }
       }
       if (!k) continue;
-      const buf = this.device.createBuffer({ size: k * 80, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-      this.device.queue.writeBuffer(buf, 0, data, 0, k * 20);
+      const buf = this.device.createBuffer({ size: k * STRIDE * 4, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+      this.device.queue.writeBuffer(buf, 0, data, 0, k * STRIDE);
       pass.setBindGroup(0, entry.bindGroup);
       pass.setVertexBuffer(0, buf);
       pass.draw(6, k);
@@ -1750,6 +1793,7 @@ export class Painter {
     for (const [src, e] of evictable) {
       if (over <= 0) break;
       e.curveBuffer?.destroy();
+      e.stopsBuffer?.destroy();
       this.vectors.delete(src);
       over--;
     }
@@ -2168,7 +2212,7 @@ export class Painter {
     this.brightTex?.destroy();
     for (const e of this.images.values()) e.tex?.destroy();
     this.images.clear();
-    for (const e of this.vectors.values()) e.curveBuffer?.destroy();
+    for (const e of this.vectors.values()) { e.curveBuffer?.destroy(); e.stopsBuffer?.destroy(); }
     this.vectors.clear();
     for (const b of [this.vpBuffer, this.bgBuffer, this.bloomExtractU, this.bloomCompositeU, this.nodeBuffer]) b?.destroy();
     for (const b of this.glassBuffers) b.destroy();

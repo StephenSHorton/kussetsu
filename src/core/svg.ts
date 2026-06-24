@@ -216,11 +216,26 @@ export function parseTransform(s: string): Matrix {
   return m;
 }
 
-/** A fillable path extracted from an SVG document: quads in viewBox space + a resolved fill. */
+export interface GradientStop {
+  offset: number; // 0..1
+  color: RGBA; // straight alpha (stop-color × stop-opacity)
+}
+/** A linear or radial gradient paint. `coords`: linear = x1,y1,x2,y2; radial = cx,cy,r,_. In `bbox`
+ *  (objectBoundingBox) units they're 0..1 of the path's box; else they're already in final/local space. */
+export interface VectorGradient {
+  type: 1 | 2; // 1 = linear, 2 = radial
+  bbox: boolean; // objectBoundingBox (true) vs userSpaceOnUse
+  coords: [number, number, number, number];
+  stops: GradientStop[];
+}
+
+/** A fillable path extracted from an SVG document: quads in viewBox space + a resolved paint (a solid
+ *  `fill`, or a `gradient` when the fill/stroke was `url(#id)`). */
 export interface VectorPath {
   quads: Quad[];
   fill: RGBA;
   evenOdd: boolean;
+  gradient?: VectorGradient;
 }
 export interface VectorDoc {
   viewBox: [number, number, number, number]; // x, y, w, h
@@ -576,6 +591,73 @@ export function parseSvgDocument(text: string): VectorDoc {
     return el.getAttribute(name);
   };
 
+  // Registry of <linearGradient>/<radialGradient> defs (by id). Coords stay in their declared units
+  // (objectBoundingBox 0..1 → resolved against each path's box at flatten; userSpaceOnUse → CTM-baked
+  // at resolve). href/xlink:href stop inheritance + spreadMethod reflect/repeat + gradientTransform are
+  // not handled yet (pad spread only).
+  const gradients = new Map<string, VectorGradient>();
+  {
+    const gnum = (el: Element, name: string, def: number) => {
+      const v = el.getAttribute(name);
+      if (v == null) return def;
+      const t = v.trim();
+      const f = t.endsWith("%") ? parseFloat(t) / 100 : parseFloat(t);
+      return Number.isFinite(f) ? f : def;
+    };
+    const href = (g: Element) => { const h = g.getAttribute("href") ?? g.getAttribute("xlink:href"); return h && h.startsWith("#") ? h.slice(1) : null; };
+    // index all gradient elements first, so href references (which may be forward) resolve
+    const els = new Map<string, Element>();
+    for (const g of Array.from(root.querySelectorAll("linearGradient, radialGradient"))) { const id = g.getAttribute("id"); if (id) els.set(id, g); }
+    const ownStops = (g: Element): GradientStop[] => {
+      const out: GradientStop[] = [];
+      let prev = 0;
+      for (const s of Array.from(g.querySelectorAll("stop"))) {
+        const scol = parseColor((styleProp(s, "stop-color") ?? "black").replace(/^currentColor$/i, "black")) ?? [0, 0, 0, 1];
+        const sop = styleProp(s, "stop-opacity");
+        const sa = sop != null ? opacity01(sop) : 1;
+        let off = Math.min(1, Math.max(0, gnum(s, "offset", 0)));
+        off = Math.max(off, prev); prev = off; // SVG: stop offsets are monotonic non-decreasing
+        out.push({ offset: off, color: [scol[0], scol[1], scol[2], scol[3] * sa] });
+      }
+      return out;
+    };
+    // a gradient may inherit its <stop>s from another via href/xlink:href (the common Figma/Illustrator
+    // export pattern: one stop set referenced by many gradients). Follow the chain (cycle/depth-guarded).
+    const stopsOf = (g: Element, depth: number): GradientStop[] => {
+      const own = ownStops(g);
+      if (own.length || depth > 8) return own;
+      const ref = href(g);
+      const refEl = ref ? els.get(ref) : null;
+      return refEl ? stopsOf(refEl, depth + 1) : [];
+    };
+    for (const [id, g] of els) {
+      const stops = stopsOf(g, 0);
+      if (!stops.length) continue; // no stops (own or inherited) → not a usable paint
+      const linear = g.tagName.toLowerCase() === "lineargradient";
+      const bbox = (g.getAttribute("gradientUnits") ?? "objectBoundingBox") !== "userSpaceOnUse";
+      const coords: [number, number, number, number] = linear
+        ? [gnum(g, "x1", 0), gnum(g, "y1", 0), gnum(g, "x2", 1), gnum(g, "y2", 0)]
+        : [gnum(g, "cx", 0.5), gnum(g, "cy", 0.5), gnum(g, "r", 0.5), 0];
+      gradients.set(id, { type: linear ? 1 : 2, bbox, coords, stops });
+    }
+  }
+  // Resolve a `url(#id)` paint → a gradient (alpha folded into the stops; userSpace coords CTM-baked).
+  const resolveGradient = (raw: string, alpha: number, m: Matrix): VectorGradient | null => {
+    const idm = /^url\(\s*['"]?#([^)'"\s]+)['"]?\s*\)/.exec(raw.trim()); // allow url(#id) / url('#id') / url("#id")
+    if (!idm) return null;
+    const g = gradients.get(idm[1]);
+    if (!g) return null;
+    const stops = alpha < 1 ? g.stops.map((s) => ({ offset: s.offset, color: [s.color[0], s.color[1], s.color[2], s.color[3] * alpha] as RGBA })) : g.stops;
+    if (g.bbox) return { type: g.type, bbox: true, coords: g.coords, stops };
+    if (g.type === 1) {
+      const a = xform(m, g.coords[0], g.coords[1]), b = xform(m, g.coords[2], g.coords[3]);
+      return { type: 1, bbox: false, coords: [a[0], a[1], b[0], b[1]], stops };
+    }
+    const c = xform(m, g.coords[0], g.coords[1]);
+    const sc = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1; // CTM scale for the radius (uniform approx)
+    return { type: 2, bbox: false, coords: [c[0], c[1], g.coords[2] * sc, g.coords[2] * sc], stops }; // rx = ry (userSpace circle)
+  };
+
   const dToSubpaths = (el: Element): SubPath[] => {
     const tag = el.tagName.toLowerCase();
     const a = (name: string) => fin(el.getAttribute(name)); // finite-or-0 (no NaN from "" / "50%")
@@ -619,22 +701,27 @@ export function parseSvgDocument(text: string): VectorDoc {
     const tag = el.tagName.toLowerCase();
     if (tag !== "svg" && tag !== "g") {
       const subs = dToSubpaths(el);
-      // FILL
-      const fillCol = paint(cur.fill === "" ? "black" : cur.fill, cur.fillOpacity * cur.opacity); // SVG default fill is black
-      if (fillCol) {
+      // FILL (solid color, or a url(#id) gradient)
+      const fillRaw = cur.fill === "" ? "black" : cur.fill; // SVG default fill is black
+      const fa = cur.fillOpacity * cur.opacity;
+      const fillCol = paint(fillRaw, fa);
+      const fillGrad = fillCol ? null : resolveGradient(fillRaw, fa, cur.m);
+      if (fillCol || fillGrad) {
         const quads = subs.flatMap(closeForFill).map((q) => xformQuad(cur.m, q));
-        if (quads.length) paths.push({ quads, fill: fillCol, evenOdd: cur.evenOdd });
+        if (quads.length) paths.push({ quads, fill: fillCol ?? [0, 0, 0, 0], evenOdd: cur.evenOdd, gradient: fillGrad ?? undefined });
       }
       // STROKE → fill. ALL pieces (across subpaths) merge into ONE VectorPath so the nonzero(|winding|)
       // fill unions them in a single coverage pass — no double-darken at stroke-opacity<1, no AA seams,
       // one draw. (strokeToFill ccw-normalizes pieces so same-winding union holds.)
-      const strokeCol = paint(cur.stroke, cur.strokeOpacity * cur.opacity);
-      if (strokeCol && cur.strokeWidth > 0) {
+      const sa = cur.strokeOpacity * cur.opacity;
+      const strokeCol = paint(cur.stroke, sa);
+      const strokeGrad = strokeCol ? null : resolveGradient(cur.stroke, sa, cur.m);
+      if ((strokeCol || strokeGrad) && cur.strokeWidth > 0) {
         const quads: Quad[] = [];
         for (const sub of subs)
           for (const piece of strokeToFill(sub, cur.strokeWidth, cap3(cur.cap), join3(cur.join), cur.miterLimit > 0 ? cur.miterLimit : 4, strokeTol))
             for (const q of piece.quads) quads.push(xformQuad(cur.m, q));
-        if (quads.length) paths.push({ quads, fill: strokeCol, evenOdd: false });
+        if (quads.length) paths.push({ quads, fill: strokeCol ?? [0, 0, 0, 0], evenOdd: false, gradient: strokeGrad ?? undefined });
       }
     }
     for (const c of Array.from(el.children)) if (SHForm[c.tagName.toLowerCase()]) walk(c, cur);
@@ -652,9 +739,14 @@ export interface VectorPathMeta {
   fill: RGBA;
   evenOdd: boolean;
   lbox: [number, number, number, number]; // x, y, w, h in viewBox space
+  gradType: 0 | 1 | 2; // 0 = solid fill, 1 = linear, 2 = radial
+  gradGeom: [number, number, number, number]; // resolved to local space: linear x1y1x2y2 | radial cx cy r _
+  stopStart: number; // first stop index in `stops` (5 floats per stop)
+  stopCount: number;
 }
 export interface VectorMesh {
   curves: Float32Array; // flat: per quad → p0.xy, control.xy, p1.xy (6 floats)
+  stops: Float32Array; // flat: per gradient stop → offset, r, g, b, a (5 floats)
   paths: VectorPathMeta[];
   viewBox: [number, number, number, number];
 }
@@ -668,6 +760,7 @@ const MAX_PATH_QUADS = 6000;
 /** VectorDoc → flat curve buffer + per-path metadata, ready to upload. Pure. */
 export function flattenVectorDoc(doc: VectorDoc): VectorMesh {
   const pts: number[] = [];
+  const stops: number[] = [];
   const paths: VectorPathMeta[] = [];
   for (const p of doc.paths) {
     if (!p.quads.length) continue;
@@ -684,7 +777,27 @@ export function flattenVectorDoc(doc: VectorDoc): VectorMesh {
       maxx = Math.max(maxx, q.x0, q.cx, q.x1);
       maxy = Math.max(maxy, q.y0, q.cy, q.y1);
     }
-    paths.push({ curveStart, curveCount: p.quads.length, fill: p.fill, evenOdd: p.evenOdd, lbox: [minx, miny, maxx - minx, maxy - miny] });
+    const lbox: [number, number, number, number] = [minx, miny, maxx - minx, maxy - miny];
+    // resolve the gradient (if any) to local-space geometry + emit its stops
+    let gradType: 0 | 1 | 2 = 0;
+    let gradGeom: [number, number, number, number] = [0, 0, 0, 0];
+    let stopStart = 0, stopCount = 0;
+    const g = p.gradient;
+    if (g && g.stops.length) {
+      gradType = g.type;
+      stopStart = stops.length / 5;
+      stopCount = g.stops.length;
+      for (const s of g.stops) stops.push(s.offset, s.color[0], s.color[1], s.color[2], s.color[3]);
+      if (g.bbox) {
+        const [lx, ly, lw, lh] = lbox;
+        gradGeom = g.type === 1
+          ? [lx + g.coords[0] * lw, ly + g.coords[1] * lh, lx + g.coords[2] * lw, ly + g.coords[3] * lh]
+          : [lx + g.coords[0] * lw, ly + g.coords[1] * lh, g.coords[2] * lw, g.coords[2] * lh]; // radial → ellipse (rx,ry) so it hugs a non-square box
+      } else {
+        gradGeom = g.coords; // linear x1y1x2y2 | radial cx cy rx ry (rx=ry from resolveGradient)
+      }
+    }
+    paths.push({ curveStart, curveCount: p.quads.length, fill: p.fill, evenOdd: p.evenOdd, lbox, gradType, gradGeom, stopStart, stopCount });
   }
-  return { curves: new Float32Array(pts), paths, viewBox: doc.viewBox };
+  return { curves: new Float32Array(pts), stops: new Float32Array(stops), paths, viewBox: doc.viewBox };
 }

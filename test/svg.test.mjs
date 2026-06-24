@@ -1,5 +1,5 @@
 // Unit tests for the SVG path → quadratic preprocessor (src/core/svg.ts). Pure geometry, no GPU/DOM.
-import { parsePath, closeForFill, strokeToFill } from "../src/core/svg.ts";
+import { parsePath, closeForFill, strokeToFill, flattenVectorDoc } from "../src/core/svg.ts";
 
 let pass = 0;
 let fail = 0;
@@ -166,6 +166,45 @@ const bboxOf = (subs) => {
 {
   ok("zero width → no pieces", strokeToFill(parsePath("M0 0 L10 0")[0], 0, "round", "round", 4).length === 0);
   ok("stroke pieces are closed loops", strokeToFill(parsePath("M0 0 L10 0")[0], 2, "butt", "miter", 4).every((s) => s.closed === true));
+}
+
+// ── flattenVectorDoc gradients (Phase 2) ────────────────────────────────────────
+const sq = closeForFill(parsePath("M0 0 H10 V10 H0 Z")[0]); // a 10×10 box → lbox [0,0,10,10]
+{
+  // linear, objectBoundingBox: coords 0..1 map to the path's box
+  const doc = { viewBox: [0, 0, 100, 100], paths: [{ quads: sq, fill: [0, 0, 0, 0], evenOdd: false, gradient: { type: 1, bbox: true, coords: [0, 0, 1, 0], stops: [{ offset: 0, color: [1, 0, 0, 1] }, { offset: 1, color: [0, 0, 1, 1] }] } }] };
+  const m = flattenVectorDoc(doc);
+  const p = m.paths[0];
+  ok("linear gradType=1", p.gradType === 1);
+  ok("linear stopStart/count = 0/2", p.stopStart === 0 && p.stopCount === 2, `${p.stopStart}/${p.stopCount}`);
+  ok("linear bbox gradGeom → [0,0,10,0]", approx(p.gradGeom[0], 0) && approx(p.gradGeom[1], 0) && approx(p.gradGeom[2], 10) && approx(p.gradGeom[3], 0), `got ${p.gradGeom}`);
+  ok("stops flat = [0,1,0,0,1, 1,0,0,1,1]", [0, 1, 0, 0, 1, 1, 0, 0, 1, 1].every((v, i) => approx(m.stops[i], v)), `got ${[...m.stops]}`);
+}
+{
+  // radial, objectBoundingBox: center maps to box; r normalized by the box diagonal/√2
+  const doc = { viewBox: [0, 0, 100, 100], paths: [{ quads: sq, fill: [0, 0, 0, 0], evenOdd: false, gradient: { type: 2, bbox: true, coords: [0.5, 0.5, 0.5, 0], stops: [{ offset: 0, color: [1, 1, 1, 1] }, { offset: 1, color: [0, 0, 0, 1] }] } }] };
+  const p = flattenVectorDoc(doc).paths[0];
+  ok("radial gradType=2", p.gradType === 2);
+  ok("radial bbox (square) center (5,5), rx=ry=5", approx(p.gradGeom[0], 5) && approx(p.gradGeom[1], 5) && approx(p.gradGeom[2], 5) && approx(p.gradGeom[3], 5), `got ${p.gradGeom}`);
+}
+{
+  // radial on a NON-square box → ellipse: rx = r*lw, ry = r*lh (hugs the box, not a circle)
+  const rect = closeForFill(parsePath("M0 0 H20 V10 H0 Z")[0]); // 20×10
+  const doc = { viewBox: [0, 0, 100, 100], paths: [{ quads: rect, fill: [0, 0, 0, 0], evenOdd: false, gradient: { type: 2, bbox: true, coords: [0.5, 0.5, 0.5, 0], stops: [{ offset: 0, color: [1, 1, 1, 1] }, { offset: 1, color: [0, 0, 0, 1] }] } }] };
+  const p = flattenVectorDoc(doc).paths[0];
+  ok("radial bbox (20×10) → ellipse rx=10 ry=5", approx(p.gradGeom[2], 10) && approx(p.gradGeom[3], 5), `got rx=${p.gradGeom[2]} ry=${p.gradGeom[3]}`);
+}
+{
+  // userSpaceOnUse: coords used as-is (already CTM-baked at resolve)
+  const doc = { viewBox: [0, 0, 100, 100], paths: [{ quads: sq, fill: [0, 0, 0, 0], evenOdd: false, gradient: { type: 1, bbox: false, coords: [2, 3, 8, 3], stops: [{ offset: 0, color: [1, 0, 0, 1] }, { offset: 1, color: [0, 1, 0, 1] }] } }] };
+  const p = flattenVectorDoc(doc).paths[0];
+  ok("userSpace gradGeom used verbatim [2,3,8,3]", approx(p.gradGeom[0], 2) && approx(p.gradGeom[1], 3) && approx(p.gradGeom[2], 8) && approx(p.gradGeom[3], 3), `got ${p.gradGeom}`);
+}
+{
+  // no gradient → gradType 0, no stops emitted
+  const doc = { viewBox: [0, 0, 100, 100], paths: [{ quads: sq, fill: [1, 0, 0, 1], evenOdd: false }] };
+  const m = flattenVectorDoc(doc);
+  ok("solid fill → gradType 0, 0 stops", m.paths[0].gradType === 0 && m.stops.length === 0);
 }
 
 console.log(`${fail === 0 ? "✓" : "✗"} svg — ${pass} passed, ${fail} failed`);
