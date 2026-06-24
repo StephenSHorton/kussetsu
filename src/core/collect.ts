@@ -294,39 +294,62 @@ export function collectOverlays(root: ElementNode, focusedId: number | null, cam
 
 /** Content INSIDE glass nodes — drawn AFTER the glass composite so labels/inputs
  *  sit crisply ON the glass instead of being refracted by it. */
-export function collectForeground(root: ElementNode, cam: Camera, scroll: ScrollMap): { rects: Rect[]; texts: TextItem[] } {
-  const rects: Rect[] = [];
-  const texts: TextItem[] = [];
-  // sy = the scroll offset in effect at the glass/material node, shared by all its children.
-  const emit = (n: ElementNode, sy: number) => {
+export interface ForegroundGroup {
+  rects: Rect[];
+  texts: TextItem[];
+}
+/** One `groups[i]` per GLASS panel (in collectGlass's exact pre-order, so group i ↔ panel i), plus
+ *  `rest` for material-node content. */
+export interface Foreground {
+  groups: ForegroundGroup[];
+  rest: ForegroundGroup;
+}
+
+export function collectForeground(root: ElementNode, cam: Camera, scroll: ScrollMap): Foreground {
+  const groups: ForegroundGroup[] = [];
+  const rest: ForegroundGroup = { rects: [], texts: [] };
+  // Add n's OWN rect + text to `bucket`. Glass/material nodes contribute none — their surface IS the
+  // glass/material, and their bg is painted there (glass shader / material shader), not as a fg rect.
+  const add = (n: ElementNode, bucket: ForegroundGroup, sy: number) => {
+    if (n.props.glass || n.props.material) return;
     const s = n.props.style ?? {};
     const x = n.x * cam.scale + cam.tx;
     const y = (n.y - sy) * cam.scale + cam.ty;
-    if (s.background || s.border) rects.push({ x, y, w: n.w * cam.scale, h: n.h * cam.scale, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing, color: s.background ?? TRANSPARENT, borderWidth: (s.border ?? 0) * cam.scale, borderColor: s.border ? (s.borderColor ?? DEFAULT_BORDER) : undefined });
+    if (s.background || s.border) bucket.rects.push({ x, y, w: n.w * cam.scale, h: n.h * cam.scale, radius: (s.radius ?? 0) * cam.scale, smoothing: s.cornerSmoothing, color: s.background ?? TRANSPARENT, borderWidth: (s.border ?? 0) * cam.scale, borderColor: s.border ? (s.borderColor ?? DEFAULT_BORDER) : undefined });
     if (n.type === "text") {
       const size = (s.fontSize ?? 16) * cam.scale;
       const weight = s.fontWeight ?? 400;
       const color = s.color ?? ([1, 1, 1, 1] as RGBA);
       const tracking = (s.letterSpacing ?? 0) * cam.scale;
       if (n.wrapped) {
-        for (const L of n.wrapped.result.lines) if (L.text) texts.push({ x, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color, tracking });
+        for (const L of n.wrapped.result.lines) if (L.text) bucket.texts.push({ x, y: (n.y - sy + L.y) * cam.scale + cam.ty, text: L.text, size, weight, color, tracking });
       } else {
         const str = textOf(n);
-        if (str) texts.push({ x, y, text: str, size, weight, color, tracking });
+        if (str) bucket.texts.push({ x, y, text: str, size, weight, color, tracking });
       }
     }
-    for (const c of n.children) if (c.kind === "element" && !c.hidden) emit(c, sy);
   };
-  const find = (n: ElementNode, sy: number) => {
-    if (n.props.glass || n.props.material) {
-      for (const c of n.children) if (c.kind === "element" && !c.hidden) emit(c, sy);
-      return; // nested glass/material not handled — fine for now
-    }
+  // Route content into `bucket` (null = backdrop, not foreground). Open a NEW group on each glass node —
+  // in the SAME pre-order collectGlass walks, so group i aligns with glass panel i — and route material
+  // subtrees to `rest` (materials composite in their own pass, so their fg stays in the final pass).
+  const route = (n: ElementNode, bucket: ForegroundGroup | null, sy: number) => {
+    if (bucket) add(n, bucket, sy);
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;
-    for (const c of n.children) if (c.kind === "element" && !c.hidden) find(c, childSy);
+    for (const c of n.children) {
+      if (c.kind !== "element" || c.hidden) continue;
+      if (c.props.glass) {
+        const g: ForegroundGroup = { rects: [], texts: [] };
+        groups.push(g);
+        route(c, g, childSy);
+      } else if (c.props.material) {
+        route(c, rest, childSy);
+      } else {
+        route(c, bucket, childSy);
+      }
+    }
   };
-  find(root, 0);
-  return { rects, texts };
+  route(root, null, 0);
+  return { groups, rest };
 }
 
 /** Custom-shader fill nodes (props.material) → flat panel list (camera + scroll applied). */

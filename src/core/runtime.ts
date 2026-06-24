@@ -573,7 +573,7 @@ export async function createGpuRoot(canvas: HTMLCanvasElement, options: GpuRootO
       if (r) {
         positionInput(r); // keep the input over the field as layout moves
         const caret = editCaretRect(r, caretOffset, camera);
-        if (caret) fg.rects.push(caret); // caret on top (composer input sits on glass)
+        if (caret) fg.rest.rects.push(caret); // caret on top, crisp (final foreground pass)
       } else {
         // The edited field was suspended/hidden (<Suspense> fallback or <Activity mode="hidden">)
         // while focused, so it dropped out of `editables`. The transparent <input> is a DOM sibling

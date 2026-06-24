@@ -1340,7 +1340,7 @@ export class Painter {
 
   // Composite glass over the backdrop with ping-pong, so each panel refracts the
   // accumulated result (glass-over-glass). Builds glass uniforms + bind groups.
-  private compositeGlass(encoder: GPUCommandEncoder, glass: GlassPanel[], fbw: number, fbh: number, cssWidth: number, cssHeight: number, dpr: number, target: GPUTextureView) {
+  private compositeGlass(encoder: GPUCommandEncoder, glass: GlassPanel[], fbw: number, fbh: number, cssWidth: number, cssHeight: number, dpr: number, target: GPUTextureView, foreground?: { rects: Rect[]; texts: TextItem[] }[]) {
     const canvasView = target;
     const clear = { r: 0, g: 0, b: 0, a: 0 };
 
@@ -1385,6 +1385,21 @@ export class Painter {
       p.setPipeline(this.glassPipeline);
       p.setBindGroup(0, glassBG(i, srcView)); // refract it
       p.draw(6);
+      // #37: draw THIS panel's foreground (text/rects) into the target NOW — after its own glass (so the
+      // panel never refracts its own text), but before the next panel samples this texture (so an
+      // overlapping higher panel DOES refract it). It propagates to the canvas via the later blits.
+      const fgi = foreground?.[i];
+      if (fgi) {
+        const rb = fgi.rects.length ? this.uploadRects(fgi.rects) : null;
+        if (rb) {
+          p.setPipeline(this.rectPipeline);
+          p.setBindGroup(0, this.rectVpBindGroup);
+          p.setVertexBuffer(0, rb);
+          p.draw(6, fgi.rects.length);
+          this.pendingBuffers.push(rb);
+        }
+        if (fgi.texts.length) this.drawGlyphs(p, fgi.texts);
+      }
       p.end();
       if (!last) {
         const t = srcView;
@@ -1906,7 +1921,7 @@ export class Painter {
   // Public frame entry: a no-op once the device is lost, and a synchronous GPU throw mid-frame
   // (device lost before the async device.lost handler fires) is caught and routed to
   // onDeviceError instead of escaping the render loop / rAF callback.
-  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[], vectors?: VectorItem[]) {
+  frame(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { groups: { rects: Rect[]; texts: TextItem[] }[]; rest: { rects: Rect[]; texts: TextItem[] } }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[], vectors?: VectorItem[]) {
     if (this.lost) return;
     try {
       this.frameImpl(rects, texts, glass, fg, materials, info, shadows, opacityGroups, images, overlays, vectors);
@@ -1915,7 +1930,7 @@ export class Painter {
     }
   }
 
-  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { rects: Rect[]; texts: TextItem[] }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[], vectors?: VectorItem[]) {
+  private frameImpl(rects: Rect[], texts: TextItem[], glass: GlassPanel[], fg?: { groups: { rects: Rect[]; texts: TextItem[] }[]; rest: { rects: Rect[]; texts: TextItem[] } }, materials?: MaterialPanel[], info?: FrameInfo, shadows?: ShadowItem[], opacityGroups?: OpacityGroup[], images?: ImageItem[], overlays?: Overlay[], vectors?: VectorItem[]) {
     const { cssWidth, cssHeight } = this.resize();
     const fbw = this.canvas.width;
     const fbh = this.canvas.height;
@@ -1927,7 +1942,7 @@ export class Painter {
     this.device.queue.writeBuffer(this.vpBuffer, 0, new Float32Array([cssWidth, cssHeight, 0, 0, 0, 0, 1, 0]));
 
     const instanceBuffer = this.uploadRects(rects);
-    const fgBuffer = fg ? this.uploadRects(fg.rects) : null;
+    const fgBuffer = fg ? this.uploadRects(fg.rest.rects) : null; // PASS 3 = material foreground only; glass fg is interleaved in compositeGlass
     const shadowBuffer = shadows && shadows.length ? this.uploadShadows(shadows) : null;
 
     const encoder = this.device.createCommandEncoder();
@@ -2027,7 +2042,7 @@ export class Painter {
     this.evictVectors(this.vectorTick);
 
     // PASS 2 — composite glass over the backdrop (ping-pong = glass-over-glass) -> finalView.
-    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr, finalView);
+    this.compositeGlass(encoder, glass, fbw, fbh, cssWidth, cssHeight, dpr, finalView, fg?.groups);
 
     // PASS 2.5 — custom shader materials (can sample the backdrop).
     if (materials && materials.length) {
@@ -2036,7 +2051,7 @@ export class Painter {
 
     // PASS 3 — foreground: a glass node's children, drawn ON the glass (crisp, not
     // refracted by it). loadOp "load" preserves what the prior passes drew into finalView.
-    if (fg && (fgBuffer || fg.texts.length)) {
+    if (fg && (fgBuffer || fg.rest.texts.length)) {
       const p3 = encoder.beginRenderPass({
         colorAttachments: [{ view: finalView, loadOp: "load", storeOp: "store" }],
       });
@@ -2044,9 +2059,9 @@ export class Painter {
         p3.setPipeline(this.rectPipeline);
         p3.setBindGroup(0, this.rectVpBindGroup);
         p3.setVertexBuffer(0, fgBuffer);
-        p3.draw(6, fg.rects.length);
+        p3.draw(6, fg.rest.rects.length);
       }
-      this.drawGlyphs(p3, fg.texts);
+      this.drawGlyphs(p3, fg.rest.texts);
       p3.end();
     }
 
