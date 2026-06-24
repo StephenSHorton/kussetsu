@@ -25,9 +25,21 @@ export interface Quad {
   y1: number;
 }
 
-/** One closed contour as a flat list of quadratics. */
+/** One contour as a flat list of quadratics. `closed` = ended with Z (a loop, no caps when stroked);
+ *  open subpaths are NOT auto-closed here — fills close them via closeForFill, strokes add line caps. */
 export interface SubPath {
   quads: Quad[];
+  closed: boolean;
+}
+
+/** Quads for FILLING a subpath: open contours get an implicit closing segment (SVG fills them closed),
+ *  closed ones are used as-is. (Strokes use sp.quads directly + caps — they must NOT be auto-closed.) */
+export function closeForFill(sp: SubPath): Quad[] {
+  if (sp.closed || sp.quads.length === 0) return sp.quads;
+  const f = sp.quads[0];
+  const l = sp.quads[sp.quads.length - 1];
+  if (f.x0 === l.x1 && f.y0 === l.y1) return sp.quads;
+  return [...sp.quads, lineQuad(l.x1, l.y1, f.x0, f.y0)];
 }
 
 // Cubic→quadratic flatness tolerance, in path user-units. Quads render ANALYTICALLY (crisp at any
@@ -155,13 +167,14 @@ export function ellipsePathD(cx: number, cy: number, rx: number, ry: number): st
   if (!(rx > 0) || !(ry > 0)) return ""; // also bails on NaN (NaN>0 is false)
   return `M${cx - rx} ${cy}A${rx} ${ry} 0 1 0 ${cx + rx} ${cy}A${rx} ${ry} 0 1 0 ${cx - rx} ${cy}Z`;
 }
-/** `<polygon>`/`<polyline>` points → a path `d` (polygon closes; polyline closes implicitly for fill). */
-export function polyPathD(points: string): string {
+/** `<polygon>`/`<polyline>` points → a path `d`. `close` adds Z (polygon = true; polyline = false, so a
+ *  STROKED polyline gets caps and no spurious closing edge — fills still close it via closeForFill). */
+export function polyPathD(points: string, close: boolean): string {
   const n = (points.match(NUM_RE) ?? []).map(Number);
   if (n.length < 4) return "";
   let d = `M${n[0]} ${n[1]}`;
   for (let i = 2; i + 1 < n.length; i += 2) d += `L${n[i]} ${n[i + 1]}`;
-  return d + "Z";
+  return close ? d + "Z" : d;
 }
 
 // ── 2D affine transform (SVG `transform` attr) ─────────────────────────────────
@@ -191,7 +204,7 @@ export function parseTransform(s: string): Matrix {
     let n: Matrix = IDENTITY;
     if (fn === "matrix" && a.length >= 6) n = [a[0], a[1], a[2], a[3], a[4], a[5]];
     else if (fn === "translate") n = [1, 0, 0, 1, a[0] || 0, a[1] || 0];
-    else if (fn === "scale") n = [a[0] || 0, 0, 0, a.length > 1 ? a[1] : a[0] || 0, 0, 0];
+    else if (fn === "scale") { const sx = a.length > 0 ? a[0] : 1; n = [sx, 0, 0, a.length > 1 ? a[1] : sx, 0, 0]; } // empty scale() = identity, not collapse
     else if (fn === "rotate") {
       const r = ((a[0] || 0) * Math.PI) / 180, cos = Math.cos(r), sin = Math.sin(r);
       const rot: Matrix = [cos, sin, -sin, cos, 0, 0];
@@ -256,7 +269,7 @@ const opacity01 = (v: string | null): number => {
 
 /** Parse an SVG path `d` string into closed sub-paths of quadratics. Handles all commands
  *  (M/L/H/V/C/S/Q/T/A/Z, absolute + relative), implicit repeated commands, and the S/T smooth
- *  reflections. Each subpath is closed for fill winding. Malformed tails are ignored. */
+ *  reflections. Subpaths carry a `closed` flag (Z) but are NOT auto-closed. Malformed tails are ignored. */
 export function parsePath(d: string): SubPath[] {
   const subs: SubPath[] = [];
   let quads: Quad[] = [];
@@ -266,10 +279,7 @@ export function parsePath(d: string): SubPath[] {
   let prevCmd = "";
 
   const flush = () => {
-    if (quads.length) {
-      if (cx !== sx || cy !== sy) quads.push(lineQuad(cx, cy, sx, sy)); // implicit close for fill
-      subs.push({ quads });
-    }
+    if (quads.length) subs.push({ quads, closed: false }); // open — NOT auto-closed (fill closes; stroke caps)
     quads = [];
   };
 
@@ -375,8 +385,8 @@ export function parsePath(d: string): SubPath[] {
         cy = ey;
       }
     } else if (cmd === "Z" || cmd === "z") {
-      if (cx !== sx || cy !== sy) quads.push(lineQuad(cx, cy, sx, sy));
-      if (quads.length) subs.push({ quads });
+      if (cx !== sx || cy !== sy) quads.push(lineQuad(cx, cy, sx, sy)); // close the loop geometrically
+      if (quads.length) subs.push({ quads, closed: true });
       quads = [];
       cx = sx;
       cy = sy;
@@ -392,19 +402,154 @@ export function parsePath(d: string): SubPath[] {
 // ── full SVG document → fillable vector paths (browser; uses DOMParser) ─────────
 const SHForm: Record<string, true> = { svg: true, g: true, path: true, rect: true, circle: true, ellipse: true, polygon: true, polyline: true };
 
+// ── stroke → fill ───────────────────────────────────────────────────────────────
+// Convert a stroked centerline into FILL subpaths, so the analytic fill shader draws it (no new shader).
+// Method: a UNION of convex pieces — a rect per segment, a join per vertex, a cap per open end — each
+// made the SAME winding (ccw) so the nonzero (|winding|) fill unions them flat (overlaps don't
+// double-darken even at stroke-opacity < 1). Curves are flattened to a polyline first.
+type Pt = [number, number];
+const STROKE_TOL = 0.2; // quad→polyline flatness (user units)
+const lineLoop = (pts: Pt[]): SubPath => {
+  const quads: Quad[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    quads.push(lineQuad(a[0], a[1], b[0], b[1]));
+  }
+  return { quads, closed: true };
+};
+// unit circle as 8 quad-Bézier arcs (45° each; control at the tangent intersection) — built once, then
+// scaled+translated per disc (avoids re-parsing an ellipse `d` string for every round join/cap).
+const UNIT_DISC: Quad[] = (() => {
+  const q: Quad[] = [];
+  const k = 1 / Math.cos(Math.PI / 8); // tangent-intersection distance for a 45° arc
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * 2 * Math.PI, b = ((i + 1) / 8) * 2 * Math.PI, m = (a + b) / 2;
+    q.push({ x0: Math.cos(a), y0: Math.sin(a), cx: Math.cos(m) * k, cy: Math.sin(m) * k, x1: Math.cos(b), y1: Math.sin(b) });
+  }
+  return q;
+})();
+const discSub = (cx: number, cy: number, r: number): SubPath => ({
+  quads: UNIT_DISC.map((u) => ({ x0: cx + u.x0 * r, y0: cy + u.y0 * r, cx: cx + u.cx * r, cy: cy + u.cy * r, x1: cx + u.x1 * r, y1: cy + u.y1 * r })),
+  closed: true,
+});
+const signedArea = (q: Quad[]): number => {
+  let a = 0;
+  for (const s of q) a += s.x0 * s.y1 - s.x1 * s.y0;
+  return a / 2;
+};
+const reverseQuads = (q: Quad[]): Quad[] => q.map((s) => ({ x0: s.x1, y0: s.y1, cx: s.cx, cy: s.cy, x1: s.x0, y1: s.y0 })).reverse();
+const ccw = (sp: SubPath): SubPath => (signedArea(sp.quads) < 0 ? { quads: reverseQuads(sp.quads), closed: sp.closed } : sp);
+
+function quadsToPolyline(quads: Quad[], tol: number): Pt[] {
+  const pts: Pt[] = [];
+  const flat = (x0: number, y0: number, cx: number, cy: number, x1: number, y1: number, depth: number) => {
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2; // control's bulge from the chord midpoint ≈ flatness
+    if (depth >= 12 || (cx - mx) * (cx - mx) + (cy - my) * (cy - my) <= tol * tol) {
+      pts.push([x1, y1]);
+      return;
+    }
+    const x01 = (x0 + cx) / 2, y01 = (y0 + cy) / 2, x12 = (cx + x1) / 2, y12 = (cy + y1) / 2, xm = (x01 + x12) / 2, ym = (y01 + y12) / 2;
+    flat(x0, y0, x01, y01, xm, ym, depth + 1);
+    flat(xm, ym, x12, y12, x1, y1, depth + 1);
+  };
+  if (quads.length) pts.push([quads[0].x0, quads[0].y0]);
+  for (const q of quads) flat(q.x0, q.y0, q.cx, q.cy, q.x1, q.y1, 0);
+  return pts;
+}
+
+const norm = (dx: number, dy: number): Pt => {
+  const l = Math.hypot(dx, dy) || 1;
+  return [dx / l, dy / l];
+};
+// rectangle of half-width hw centered on segment a→b
+const rectPiece = (a: Pt, b: Pt, hw: number): SubPath => {
+  const [dx, dy] = norm(b[0] - a[0], b[1] - a[1]);
+  const nx = -dy * hw, ny = dx * hw; // left normal × hw
+  return lineLoop([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]]);
+};
+
+export type StrokeCap = "butt" | "round" | "square";
+export type StrokeJoin = "miter" | "round" | "bevel";
+const cap3 = (c: string): StrokeCap => (c === "round" || c === "square" ? c : "butt");
+const join3 = (j: string): StrokeJoin => (j === "round" || j === "bevel" ? j : "miter");
+
+/** Stroke a centerline subpath into fill subpaths (outline pieces). Caller concatenates all pieces'
+ *  quads into ONE VectorPath so the nonzero(|winding|) fill unions them (no double-darken / AA seams). */
+export function strokeToFill(sp: SubPath, width: number, cap: StrokeCap, join: StrokeJoin, miterLimit: number, tol = STROKE_TOL): SubPath[] {
+  const hw = width / 2;
+  if (!(hw > 0)) return [];
+  let pts = quadsToPolyline(sp.quads, tol).filter((p, i, a) => i === 0 || Math.hypot(p[0] - a[i - 1][0], p[1] - a[i - 1][1]) > 1e-6);
+  const closed = sp.closed;
+  if (closed && pts.length > 1 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) < 1e-6) pts.pop();
+  const n = pts.length;
+  if (n < 2) return n === 1 && cap !== "butt" ? [ccw(discSub(pts[0][0], pts[0][1], hw))] : [];
+  const out: SubPath[] = [];
+  const segCount = closed ? n : n - 1;
+  for (let i = 0; i < segCount; i++) out.push(rectPiece(pts[i], pts[(i + 1) % n], hw));
+  // joins at interior vertices (closed: every vertex)
+  for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
+    const v = pts[i], p = pts[(i - 1 + n) % n], q = pts[(i + 1) % n];
+    const d0 = norm(v[0] - p[0], v[1] - p[1]), d1 = norm(q[0] - v[0], q[1] - v[1]);
+    const cross = d0[0] * d1[1] - d0[1] * d1[0];
+    const dot = d0[0] * d1[0] + d0[1] * d1[1];
+    if (Math.abs(cross) < 0.02) {
+      if (dot > 0) continue; // (near-)straight — the rects already meet, no gap
+      out.push(discSub(v[0], v[1], hw)); // 180° hairpin (cross≈0 but reversed) → round it
+      continue;
+    }
+    if (join === "round") {
+      out.push(discSub(v[0], v[1], hw));
+      continue;
+    }
+    const s = cross > 0 ? -1 : 1; // outer side of the turn
+    const cA: Pt = [v[0] + s * -d0[1] * hw, v[1] + s * d0[0] * hw];
+    const cB: Pt = [v[0] + s * -d1[1] * hw, v[1] + s * d1[0] * hw];
+    if (join === "miter") {
+      // intersect line(cA, dir d0) with line(cB, dir d1)
+      const den = d0[0] * d1[1] - d0[1] * d1[0];
+      const t = ((cB[0] - cA[0]) * d1[1] - (cB[1] - cA[1]) * d1[0]) / den;
+      const mp: Pt = [cA[0] + d0[0] * t, cA[1] + d0[1] * t];
+      if (Math.hypot(mp[0] - v[0], mp[1] - v[1]) <= miterLimit * hw) {
+        out.push(lineLoop([v, cA, mp, cB]));
+        continue;
+      }
+    }
+    out.push(lineLoop([v, cA, cB])); // bevel (and miter past the limit)
+  }
+  // caps (open ends)
+  if (!closed) {
+    for (const [end, nb] of [[pts[0], pts[1]], [pts[n - 1], pts[n - 2]]] as [Pt, Pt][]) {
+      if (cap === "round") out.push(discSub(end[0], end[1], hw));
+      else if (cap === "square") {
+        const [dx, dy] = norm(end[0] - nb[0], end[1] - nb[1]);
+        out.push(rectPiece(end, [end[0] + dx * hw, end[1] + dy * hw], hw));
+      }
+    }
+  }
+  return out.map(ccw);
+}
+
 interface Inherited {
   fill: string; // "none" | a color | "" (unset → black)
   fillOpacity: number;
   opacity: number;
   evenOdd: boolean;
+  stroke: string; // "" (none) | a color
+  strokeWidth: number;
+  strokeOpacity: number;
+  cap: StrokeCap;
+  join: StrokeJoin;
+  miterLimit: number;
   m: Matrix;
 }
 
 /** Parse a full SVG document string into fillable paths (quads in viewBox space + resolved fill).
  *  Browser-only (DOMParser). v1 scope: `<path>`/`<rect>`/`<circle>`/`<ellipse>`/`<polygon>`/`<polyline>`
- *  under `<g>` groups, with `transform`, `fill` / `fill-rule` / `fill-opacity` / `opacity` (attr or
- *  inline style, inherited), and the root `viewBox`. NOT yet: gradients/patterns (url(#…) fills are
- *  skipped), strokes, `<use>`, `<text>`, `<image>`, CSS `<style>`, clip/mask/filters. */
+ *  under `<g>` groups, with `transform`, `fill` / `fill-rule` / `fill-opacity` / `opacity`, and
+ *  `stroke` / `stroke-width` / `stroke-opacity` / `stroke-linecap` / `stroke-linejoin` /
+ *  `stroke-miterlimit` (all attr or inline style, inherited; strokes → fill via strokeToFill), and the
+ *  root `viewBox`. NOT yet: gradients/patterns (url(#…) skipped), stroke-dasharray, `<use>`, `<text>`,
+ *  `<image>`, CSS `<style>`, clip/mask/filters. */
 export function parseSvgDocument(text: string): VectorDoc {
   const doc = new DOMParser().parseFromString(text, "image/svg+xml");
   const root = doc.documentElement;
@@ -419,6 +564,7 @@ export function parseSvgDocument(text: string): VectorDoc {
     const h = parseFloat(root.getAttribute("height") ?? "");
     if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) viewBox = [0, 0, w, h];
   }
+  const strokeTol = Math.max(viewBox[2], viewBox[3]) * 0.0005; // curve→polyline flatness, scaled to the coordinate space
 
   const paths: VectorPath[] = [];
   const styleProp = (el: Element, name: string): string | null => {
@@ -430,7 +576,7 @@ export function parseSvgDocument(text: string): VectorDoc {
     return el.getAttribute(name);
   };
 
-  const dToQuads = (el: Element): Quad[] => {
+  const dToSubpaths = (el: Element): SubPath[] => {
     const tag = el.tagName.toLowerCase();
     const a = (name: string) => fin(el.getAttribute(name)); // finite-or-0 (no NaN from "" / "50%")
     let d: string | null = null;
@@ -440,39 +586,60 @@ export function parseSvgDocument(text: string): VectorDoc {
       const r = a("r");
       d = ellipsePathD(a("cx"), a("cy"), r, r);
     } else if (tag === "ellipse") d = ellipsePathD(a("cx"), a("cy"), a("rx"), a("ry"));
-    else if (tag === "polygon" || tag === "polyline") d = polyPathD(el.getAttribute("points") ?? "");
-    if (!d) return [];
-    return parsePath(d).flatMap((sp) => sp.quads);
+    else if (tag === "polygon" || tag === "polyline") d = polyPathD(el.getAttribute("points") ?? "", tag === "polygon");
+    return d ? parsePath(d) : [];
+  };
+  // resolve a paint color string → premultiply-free RGBA with the given alpha, or null (none/url/unparseable)
+  const paint = (raw: string, alpha: number): RGBA | null => {
+    const c = raw === "" ? null : raw.trim();
+    if (!c || c.toLowerCase() === "none" || c.startsWith("url(")) return null;
+    const col = parseColor(/^currentcolor$/i.test(c) ? "black" : c); // currentColor → black (no inherited color yet)
+    if (!col) return null;
+    const a = col[3] * alpha;
+    return a > 0 ? [col[0], col[1], col[2], a] : null;
   };
 
   const walk = (el: Element, inh: Inherited) => {
     const tf = el.getAttribute("transform");
     const fr = styleProp(el, "fill-rule");
+    const sp = (name: string, fallback: number) => { const v = styleProp(el, name); return v != null && !v.trim().endsWith("%") ? fin(v, fallback) : fallback; }; // % stroke-width unsupported → inherit
     const cur: Inherited = {
       m: tf ? mul(inh.m, parseTransform(tf)) : inh.m,
       fill: styleProp(el, "fill") ?? inh.fill,
       fillOpacity: (() => { const v = styleProp(el, "fill-opacity"); return v != null ? opacity01(v) : inh.fillOpacity; })(),
       opacity: (() => { const v = styleProp(el, "opacity"); return v != null ? inh.opacity * opacity01(v) : inh.opacity; })(),
       evenOdd: fr ? fr === "evenodd" : inh.evenOdd,
+      stroke: styleProp(el, "stroke") ?? inh.stroke,
+      strokeWidth: sp("stroke-width", inh.strokeWidth),
+      strokeOpacity: (() => { const v = styleProp(el, "stroke-opacity"); return v != null ? opacity01(v) : inh.strokeOpacity; })(),
+      cap: (styleProp(el, "stroke-linecap") as StrokeCap) || inh.cap,
+      join: (styleProp(el, "stroke-linejoin") as StrokeJoin) || inh.join,
+      miterLimit: sp("stroke-miterlimit", inh.miterLimit),
     };
     const tag = el.tagName.toLowerCase();
     if (tag !== "svg" && tag !== "g") {
-      // a shape: resolve fill + emit
-      const fillStr = cur.fill === "" ? "black" : cur.fill.trim(); // SVG default fill is black
-      if (fillStr.toLowerCase() !== "none" && !fillStr.startsWith("url(")) {
-        const col = parseColor(/^currentcolor$/i.test(fillStr) ? "black" : fillStr); // currentColor → black (no inherited color yet)
-        if (col) {
-          const a = col[3] * cur.fillOpacity * cur.opacity;
-          if (a > 0) {
-            const quads = dToQuads(el).map((q) => xformQuad(cur.m, q));
-            if (quads.length) paths.push({ quads, fill: [col[0], col[1], col[2], a], evenOdd: cur.evenOdd });
-          }
-        }
+      const subs = dToSubpaths(el);
+      // FILL
+      const fillCol = paint(cur.fill === "" ? "black" : cur.fill, cur.fillOpacity * cur.opacity); // SVG default fill is black
+      if (fillCol) {
+        const quads = subs.flatMap(closeForFill).map((q) => xformQuad(cur.m, q));
+        if (quads.length) paths.push({ quads, fill: fillCol, evenOdd: cur.evenOdd });
+      }
+      // STROKE → fill. ALL pieces (across subpaths) merge into ONE VectorPath so the nonzero(|winding|)
+      // fill unions them in a single coverage pass — no double-darken at stroke-opacity<1, no AA seams,
+      // one draw. (strokeToFill ccw-normalizes pieces so same-winding union holds.)
+      const strokeCol = paint(cur.stroke, cur.strokeOpacity * cur.opacity);
+      if (strokeCol && cur.strokeWidth > 0) {
+        const quads: Quad[] = [];
+        for (const sub of subs)
+          for (const piece of strokeToFill(sub, cur.strokeWidth, cap3(cur.cap), join3(cur.join), cur.miterLimit > 0 ? cur.miterLimit : 4, strokeTol))
+            for (const q of piece.quads) quads.push(xformQuad(cur.m, q));
+        if (quads.length) paths.push({ quads, fill: strokeCol, evenOdd: false });
       }
     }
     for (const c of Array.from(el.children)) if (SHForm[c.tagName.toLowerCase()]) walk(c, cur);
   };
-  walk(root, { fill: "", fillOpacity: 1, opacity: 1, evenOdd: false, m: IDENTITY });
+  walk(root, { fill: "", fillOpacity: 1, opacity: 1, evenOdd: false, stroke: "", strokeWidth: 1, strokeOpacity: 1, cap: "butt", join: "miter", miterLimit: 4, m: IDENTITY });
   return { viewBox, paths };
 }
 
