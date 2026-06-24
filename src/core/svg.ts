@@ -743,29 +743,43 @@ export interface VectorPathMeta {
   gradGeom: [number, number, number, number]; // resolved to local space: linear x1y1x2y2 | radial cx cy r _
   stopStart: number; // first stop index in `stops` (5 floats per stop)
   stopCount: number;
+  // Scanline banding: the path's quads are binned into `bandN` horizontal bands (for the +x ray) then
+  // `bandN` vertical bands (for the +y ray). A fragment tests only its band's quads, not all of them.
+  bandHBase: number; // first H band index in `bandHeaders`
+  bandVBase: number; // first V band index (= bandHBase + bandN)
+  bandN: number; // band count per axis
 }
 export interface VectorMesh {
   curves: Float32Array; // flat: per quad → p0.xy, control.xy, p1.xy (6 floats)
   stops: Float32Array; // flat: per gradient stop → offset, r, g, b, a (5 floats)
+  bandHeaders: Uint32Array; // per band → (offset into bandQuads, count) — 2 u32 each
+  bandQuads: Uint32Array; // flat quad indices (into `curves`), grouped by band
   paths: VectorPathMeta[];
   viewBox: [number, number, number, number];
 }
 
-// The fill shader is UNBANDED — every fragment in a path's bbox loops ALL its quads (cost ∝ area ×
-// quadCount). A pathological path (dense map outline, font-as-path) could stall the GPU, so cap per-path
-// quads and skip+warn beyond it (degrade to "not drawn" rather than hang). Normal icons are well under.
-// (Scanline banding to lift this ceiling is the planned Phase-1.5 optimization.)
-const MAX_PATH_QUADS = 6000;
+// With scanline banding a fragment only tests its band's quads (not all), so this cap can be high — it
+// now bounds CPU band-build cost + the band buffers, not the per-fragment loop. A path beyond it is
+// skipped + warned (degrade to "not drawn" rather than stall). Normal icons/illustrations are far under.
+const MAX_PATH_QUADS = 50000;
 
-/** VectorDoc → flat curve buffer + per-path metadata, ready to upload. Pure. */
+// a quad's extent on one axis (0 = x, 1 = y), from its 3 control points (a conservative band bound)
+const quadAxisRange = (q: Quad, ax: 0 | 1): [number, number] => {
+  const a = ax === 0 ? q.x0 : q.y0, b = ax === 0 ? q.cx : q.cy, c = ax === 0 ? q.x1 : q.y1;
+  return [Math.min(a, b, c), Math.max(a, b, c)];
+};
+
+/** VectorDoc → flat curve buffer + per-path metadata + band tables, ready to upload. Pure. */
 export function flattenVectorDoc(doc: VectorDoc): VectorMesh {
   const pts: number[] = [];
   const stops: number[] = [];
+  const bandHeaders: number[] = []; // (offset, count) per band
+  const bandQuads: number[] = []; // flat quad indices, grouped by band
   const paths: VectorPathMeta[] = [];
   for (const p of doc.paths) {
     if (!p.quads.length) continue;
     if (p.quads.length > MAX_PATH_QUADS) {
-      if (typeof console !== "undefined") console.warn(`[kussetsu] SVG path skipped: ${p.quads.length} quads exceeds the ${MAX_PATH_QUADS} cap (unbanded fill would stall the GPU)`);
+      if (typeof console !== "undefined") console.warn(`[kussetsu] SVG path skipped: ${p.quads.length} quads exceeds the ${MAX_PATH_QUADS} cap`);
       continue;
     }
     const curveStart = pts.length / 6;
@@ -778,6 +792,33 @@ export function flattenVectorDoc(doc: VectorDoc): VectorMesh {
       maxy = Math.max(maxy, q.y0, q.cy, q.y1);
     }
     const lbox: [number, number, number, number] = [minx, miny, maxx - minx, maxy - miny];
+    // ── banding: bin quads into bandN H bands (by y) then bandN V bands (by x) ──
+    const bandN = Math.max(1, Math.min(256, Math.round(Math.sqrt(p.quads.length))));
+    const bandHBase = bandHeaders.length / 2;
+    const addBands = (lo: number, size: number, ax: 0 | 1) => {
+      const lists: number[][] = Array.from({ length: bandN }, () => []);
+      const step = size / bandN;
+      for (let i = 0; i < p.quads.length; i++) {
+        const [qlo, qhi] = quadAxisRange(p.quads[i], ax);
+        let k0 = step > 0 ? Math.floor((qlo - lo) / step) : 0;
+        let k1 = step > 0 ? Math.floor((qhi - lo) / step) : 0;
+        k0 = Math.max(0, Math.min(bandN - 1, k0));
+        k1 = Math.max(0, Math.min(bandN - 1, k1));
+        // Widen by ±1: the shader picks a fragment's band in f32 while this assigns in f64, so at a band
+        // boundary the shader can land one band off. Including the neighbours guarantees the quad is still
+        // found there (no fill holes). Costs ~2 extra band entries per quad.
+        k0 = Math.max(0, k0 - 1);
+        k1 = Math.min(bandN - 1, k1 + 1);
+        for (let k = k0; k <= k1; k++) lists[k].push(curveStart + i);
+      }
+      for (const list of lists) {
+        bandHeaders.push(bandQuads.length, list.length);
+        for (const qi of list) bandQuads.push(qi);
+      }
+    };
+    addBands(miny, maxy - miny, 1); // H bands (y) — for the +x ray
+    const bandVBase = bandHeaders.length / 2;
+    addBands(minx, maxx - minx, 0); // V bands (x) — for the +y ray
     // resolve the gradient (if any) to local-space geometry + emit its stops
     let gradType: 0 | 1 | 2 = 0;
     let gradGeom: [number, number, number, number] = [0, 0, 0, 0];
@@ -797,7 +838,7 @@ export function flattenVectorDoc(doc: VectorDoc): VectorMesh {
         gradGeom = g.coords; // linear x1y1x2y2 | radial cx cy rx ry (rx=ry from resolveGradient)
       }
     }
-    paths.push({ curveStart, curveCount: p.quads.length, fill: p.fill, evenOdd: p.evenOdd, lbox, gradType, gradGeom, stopStart, stopCount });
+    paths.push({ curveStart, curveCount: p.quads.length, fill: p.fill, evenOdd: p.evenOdd, lbox, gradType, gradGeom, stopStart, stopCount, bandHBase, bandVBase, bandN });
   }
-  return { curves: new Float32Array(pts), stops: new Float32Array(stops), paths, viewBox: doc.viewBox };
+  return { curves: new Float32Array(pts), stops: new Float32Array(stops), bandHeaders: new Uint32Array(bandHeaders), bandQuads: new Uint32Array(bandQuads), paths, viewBox: doc.viewBox };
 }

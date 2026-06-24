@@ -207,5 +207,59 @@ const sq = closeForFill(parsePath("M0 0 H10 V10 H0 Z")[0]); // a 10×10 box → 
   ok("solid fill → gradType 0, 0 stops", m.paths[0].gradType === 0 && m.stops.length === 0);
 }
 
+// ── scanline banding (Phase 1.5) ────────────────────────────────────────────────
+{
+  const rect = closeForFill(parsePath("M0 0 H10 V100 H0 Z")[0]); // tall 10×100 → 4 quads
+  const m = flattenVectorDoc({ viewBox: [0, 0, 100, 100], paths: [{ quads: rect, fill: [1, 0, 0, 1], evenOdd: false }] });
+  const p = m.paths[0];
+  ok("banding: bandN ≥ 1", p.bandN >= 1);
+  ok("banding: headers = 2 axes × bandN bands (2 u32 each)", m.bandHeaders.length === 2 * 2 * p.bandN, `got ${m.bandHeaders.length}`);
+  ok("banding: bandVBase = bandHBase + bandN", p.bandVBase === p.bandHBase + p.bandN);
+  // EVERY quad must be reachable from the H bands (banding must not drop a quad → no fill holes)
+  const inH = new Set();
+  for (let b = p.bandHBase; b < p.bandHBase + p.bandN; b++) {
+    const off = m.bandHeaders[b * 2], cnt = m.bandHeaders[b * 2 + 1];
+    for (let j = 0; j < cnt; j++) inH.add(m.bandQuads[off + j]);
+  }
+  ok("banding: all 4 quads covered by H bands", [0, 1, 2, 3].every((q) => inH.has(q)), `got ${[...inH]}`);
+  // a full-height edge quad (spanning y 0..100) must appear in BOTH the first and last H band
+  const bf = p.bandHBase, bl = p.bandHBase + p.bandN - 1;
+  const inFirst = new Set(), inLast = new Set();
+  for (let j = 0; j < m.bandHeaders[bf * 2 + 1]; j++) inFirst.add(m.bandQuads[m.bandHeaders[bf * 2] + j]);
+  for (let j = 0; j < m.bandHeaders[bl * 2 + 1]; j++) inLast.add(m.bandQuads[m.bandHeaders[bl * 2] + j]);
+  ok("banding: a full-height quad spans first..last band", [...inFirst].some((q) => inLast.has(q)));
+}
+{
+  // tiny path → still valid (bandN small, all quads present)
+  const m = flattenVectorDoc({ viewBox: [0, 0, 10, 10], paths: [{ quads: closeForFill(parsePath("M0 0 L10 0")[0]), fill: [0, 0, 0, 1], evenOdd: false }] });
+  ok("banding: tiny path bandN≥1 + quads present", m.paths[0].bandN >= 1 && m.bandQuads.length > 0);
+}
+{
+  // no-hole property: the shader picks a fragment's band in f32; for any coord inside a quad's axis range,
+  // that quad MUST be in the chosen band (else a fill hole). The ±1 widening guarantees it despite f32/f64.
+  const f32 = Math.fround;
+  const shaderBand = (c, lo, size, n) => {
+    if (!(size > 0)) return 0;
+    const raw = f32(f32(f32(c) - f32(lo)) / f32(size)) * n; // ≈ the WGSL f32 ops
+    return Math.min(n - 1, Math.floor(Math.max(0, Math.min(n - 1, raw))));
+  };
+  const bandSet = (m, base, k) => { const s = new Set(); const o = m.bandHeaders[(base + k) * 2], c = m.bandHeaders[(base + k) * 2 + 1]; for (let j = 0; j < c; j++) s.add(m.bandQuads[o + j]); return s; };
+  // boundary-prone coordinates (fractional origin/size, many bands)
+  const m = flattenVectorDoc({ viewBox: [0, 0, 100, 100], paths: [{ quads: closeForFill(parsePath("M0.37 0.7 C20 90 80 5 99.13 73.91 L99.13 99 L0.37 99 Z")[0]), fill: [1, 0, 0, 1], evenOdd: false }] });
+  const p = m.paths[0];
+  let holes = 0;
+  for (let qi = p.curveStart; qi < p.curveStart + p.curveCount; qi++) {
+    const b = qi * 6; // quad qi = [x0,y0, cx,cy, x1,y1] in mesh.curves
+    const ylo = Math.min(m.curves[b + 1], m.curves[b + 3], m.curves[b + 5]), yhi = Math.max(m.curves[b + 1], m.curves[b + 3], m.curves[b + 5]);
+    const xlo = Math.min(m.curves[b], m.curves[b + 2], m.curves[b + 4]), xhi = Math.max(m.curves[b], m.curves[b + 2], m.curves[b + 4]);
+    for (let t = 0; t <= 24; t++) {
+      const cy = ylo + ((yhi - ylo) * t) / 24, cx = xlo + ((xhi - xlo) * t) / 24;
+      if (!bandSet(m, p.bandHBase, shaderBand(cy, p.lbox[1], p.lbox[3], p.bandN)).has(qi)) holes++;
+      if (!bandSet(m, p.bandVBase, shaderBand(cx, p.lbox[0], p.lbox[2], p.bandN)).has(qi)) holes++;
+    }
+  }
+  ok("banding: f32-shader band always contains the crossed quad (no holes)", holes === 0, `${holes} hole-samples`);
+}
+
 console.log(`${fail === 0 ? "✓" : "✗"} svg — ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

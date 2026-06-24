@@ -28,12 +28,14 @@ All notable changes to Kussetsu are documented here. This project adheres to
     both `objectBoundingBox` and `userSpaceOnUse` units (`pad` spread). Radial gradients render as an
     ellipse that hugs a non-square box. Evaluated per-pixel in the fill shader (stops in a storage
     buffer), so it stays smooth at any zoom.
+  - **Scanline banding** — the fill is now **banded**: each fragment tests only the quads in its
+    horizontal band (for the +x coverage ray) and vertical band (for the +y ray), instead of every quad
+    in the path. This bounds the per-fragment cost, so dense paths (detailed illustrations, maps,
+    text-as-path) render fast and the per-path quad cap is raised to 50,000.
   - **Not yet:** `gradientTransform` + gradients on rotated/skewed elements (use the element's
     axis-aligned box), `reflect`/`repeat` spread, patterns, `stroke-dasharray`, and
-    filters/masks/clipPaths/`<use>`/`<text>`. The fill shader is
-    unbanded, so a per-path quad cap skips (with a warning) pathologically dense paths rather than
-    stalling the GPU; scanline banding to lift that ceiling is planned. Like images, a vector inside an
-    `opacity` group isn't group-faded.
+    filters/masks/clipPaths/`<use>`/`<text>`. Like images, a vector inside an `opacity` group isn't
+    group-faded.
 
 ## [0.5.0] — 2026-06-23
 
