@@ -376,6 +376,9 @@ export function collectGlass(root: ElementNode, cam: Camera, scroll: ScrollMap, 
         brighten: t ? t.brighten : 1.03,
         specular: t ? t.specular : (g.specular ?? 0.02),
         dispersion: t ? t.dispersion : (g.dispersion ?? 0.025),
+        // style.background occludes the backdrop at its alpha (frosted AND opaque modal). Read per-node,
+        // NOT from the glass override `t` — occlusion is structural, not part of the tunable glass look.
+        background: n.props.style?.background ?? TRANSPARENT,
       });
     }
     const childSy = n.props.style?.overflow === "scroll" ? sy + (scroll.get(n.id) ?? 0) : sy;

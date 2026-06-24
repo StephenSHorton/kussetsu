@@ -127,6 +127,7 @@ export interface GlassPanel {
   brighten: number; // overall lightening (1 = none)
   specular: number; // highlight/glint intensity (0 = none)
   dispersion: number; // chromatic split at the rim (0 = none) — the colorful edge
+  background: RGBA; // style.background, over-composited at its alpha to occlude the backdrop ([0,0,0,0] = pure glass)
 }
 
 // A node filled by a CUSTOM WGSL fragment shader (props.material). The shader source
@@ -531,6 +532,7 @@ struct GU {
   tint: vec4f,   // rgba
   misc: vec4f,   // dpr, radius, brighten, specular
   params2: vec4f,// dispersion, _, _, _
+  bg: vec4f,     // panel background rgba (straight alpha) — over-composited to occlude the backdrop
 };
 @group(0) @binding(0) var<uniform> u: GU;
 @group(0) @binding(1) var samp: sampler;
@@ -607,6 +609,7 @@ fn sdRoundBox(p: vec2f, b: vec2f, r: f32) -> f32 { let q = abs(p)-b+vec2f(r); re
   }
 
   col = mix(col, u.tint.rgb, tintAmt);
+  col = mix(col, u.bg.rgb, u.bg.a); // panel background over the refracted sample at its alpha (occludes when opaque)
   col *= u.misc.z; // brighten (live-tunable)
 
   // thin rim edge — keeps the glass shape readable, always on
@@ -1342,16 +1345,17 @@ export class Painter {
     const clear = { r: 0, g: 0, b: 0, a: 0 };
 
     while (this.glassBuffers.length < glass.length) {
-      this.glassBuffers.push(this.device.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
+      this.glassBuffers.push(this.device.createBuffer({ size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }));
     }
     glass.forEach((g, i) => {
-      const u = new Float32Array(24);
+      const u = new Float32Array(28);
       u[0] = g.x; u[1] = g.y; u[2] = g.w; u[3] = g.h;
       u[4] = fbw; u[5] = fbh; u[6] = cssWidth; u[7] = cssHeight;
       u[8] = g.refraction; u[9] = g.blur; u[10] = g.tint; u[11] = g.rim;
       u[12] = g.tintColor[0]; u[13] = g.tintColor[1]; u[14] = g.tintColor[2]; u[15] = g.tintColor[3];
       u[16] = dpr; u[17] = g.radius; u[18] = g.brighten; u[19] = g.specular;
       u[20] = g.dispersion;
+      u[24] = g.background[0]; u[25] = g.background[1]; u[26] = g.background[2]; u[27] = g.background[3]; // bg vec4f at offset 96
       this.device.queue.writeBuffer(this.glassBuffers[i], 0, u);
     });
 
