@@ -17,8 +17,13 @@ All notable changes to Kussetsu are documented here. This project adheres to
   `opacity` (inherited), `viewBox`, and SVGO-compacted arc flags. The SVG is fit into the node box
   (contain, preserving aspect), loaded once per `src` (async, bounded LRU cache, device-loss-aware), and
   lifts into the `zIndex` overlay layer like images.
-  - **v1 scope (fills only):** no strokes yet (stroke-based icon sets like Lucide/Feather need
-    stroke-to-fill — planned), no gradients/patterns (`url(#…)` fills skipped — planned), no
+  - **Strokes** — `stroke` / `stroke-width` / `stroke-opacity` / `stroke-linecap` (butt/round/square) /
+    `stroke-linejoin` (miter/round/bevel) / `stroke-miterlimit` (all inherited) now render, so
+    **stroke-based icon sets (Lucide, Feather, Heroicons-outline, Tabler) work**. Strokes are converted
+    to fill geometry (a union of per-segment + per-join + per-cap pieces, merged into one path so the
+    fill unions them cleanly — no double-darkening at `stroke-opacity < 1`). A shape can have both a
+    fill and a stroke.
+  - **Not yet:** gradients/patterns (`url(#…)` fills skipped — planned), `stroke-dasharray`, and
     filters/masks/clipPaths/`<use>`/`<text>`. The fill shader is unbanded, so a per-path quad cap skips
     (with a warning) pathologically dense paths rather than stalling the GPU; scanline banding to lift
     that ceiling is planned. Like images, a vector inside an `opacity` group isn't group-faded.
