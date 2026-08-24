@@ -1,0 +1,13 @@
+[package]
+name = "kussetsu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust GPU UI — glass, rain, wells. Native + WASM."
+
+[lib]
+name = "kussetsu"
+
+[dependencies]
+bytemuck.workspace = true
+wgpu.workspace = true

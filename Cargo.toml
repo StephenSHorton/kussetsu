@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = ["crates/kussetsu", "crates/site"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+bytemuck = { version = "1.22", features = ["derive"] }
+glyphon = "0.8"
+pollster = "0.4"
+wgpu = "24.0"
+winit = "0.30"

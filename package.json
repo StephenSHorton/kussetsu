@@ -26,6 +26,8 @@
     "CHANGELOG.md"
   ],
   "scripts": {
+    "hero:wasm": "wasm-pack build crates/site --target web --out-dir www --dev && cp crates/site/index.html crates/site/www/index.html && cp crates/site/ui.html crates/site/www/ui.html",
+    "hero:serve": "python3 -m http.server 8765 --directory crates/site/www",
     "dev": "vite",
     "build": "vite build",
     "build:lib": "vite build --config vite.lib.config.ts && vite build --config vite.compat.config.ts && tsc -p tsconfig.lib.json && dts-bundle-generator -o dist/index.d.ts --project tsconfig.json --no-check src/core/index.ts && dts-bundle-generator -o dist/compat/index.d.ts --project tsconfig.json --no-check src/compat/index.ts && dts-bundle-generator -o dist/compat/runtime.d.ts --project tsconfig.json --no-check src/compat/runtime.ts",
