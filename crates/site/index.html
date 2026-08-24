@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>kussetsu</title>
+    <meta name="theme-color" content="#050806" />
+    <style>
+      html, body { margin: 0; height: 100%; background: #050806; overflow: hidden; }
+      canvas#gpu { display: block; width: 100vw; height: 100dvh; touch-action: none; outline: none; }
+      canvas#gpu:focus { outline: none; }
+    </style>
+  </head>
+  <body>
+    <canvas id="gpu"></canvas>
+    <script type="module">
+      const canvas = document.getElementById("gpu");
+      const fit = () => {
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+        canvas.height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      };
+      fit();
+      window.addEventListener("resize", fit);
+      import init, { start_kussetsu } from "./kussetsu_site.js";
+      init()
+        .then(() => start_kussetsu())
+        .catch((err) => {
+        document.body.insertAdjacentHTML(
+          "beforeend",
+          `<p style="color:#e8fff0;font:16px system-ui;padding:2rem">Need WebGPU. ${err}</p>`,
+        );
+      });
+    </script>
+  </body>
+</html>

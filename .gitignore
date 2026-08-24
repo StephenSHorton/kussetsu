@@ -1,3 +1,8 @@
 node_modules
 dist
 dist-site
+/target
+**/*.rs.bk
+crates/site/www
+.grok-tmp/
+crates/site/fonts/ShipporiMincho-Bold.ttf
